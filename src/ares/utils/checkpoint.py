@@ -47,7 +47,10 @@ def compute_state_dict_sha256(state_dict: Dict[str, torch.Tensor]) -> str:
         tensor = state_dict[key]
         # Include key in hash
         sha256_hash.update(key.encode())
-        # Include tensor data
+        # Include tensor data — convert to float32 for deterministic serialization
+        # (handles bfloat16, float16, and other dtypes that numpy().tobytes() doesn't support natively)
+        if tensor.dtype in (torch.bfloat16, torch.float16):
+            tensor = tensor.float()
         sha256_hash.update(tensor.cpu().numpy().tobytes())
     return sha256_hash.hexdigest()
 
