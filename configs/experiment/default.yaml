@@ -1,0 +1,58 @@
+# Default experiment configuration
+# Inherits from backbone config and adds training/eval settings
+
+defaults:
+  - backbone: qwen_0_5b
+  - _self_
+
+# Training configuration (for later weeks)
+training:
+  num_epochs: 10
+  learning_rate: 1.0e-4
+  weight_decay: 0.01
+  warmup_steps: 100
+  max_grad_norm: 1.0
+  gradient_accumulation_steps: 1
+  mixed_precision: "bf16"
+  data:
+    dataset_name: "wikitext"
+    dataset_split: "train"
+    max_samples: null
+    batch_size: 4
+    num_workers: 4
+    max_length: 2048
+
+# Reliability model configs (PRD §3.2.3, §3.2.4)
+grm:
+  hidden_dim: 512
+  num_layers: 2
+  num_heads: 4
+  dropout: 0.1
+  domain_classes: 5
+
+lrm:
+  hidden_dim: 512
+  num_layers: 2
+  num_heads: 4
+  dropout: 0.1
+
+# Router config (PRD §3.2.5)
+router:
+  hidden_dim: 256
+  num_layers: 2
+  num_experts: 5
+  dropout: 0.1
+
+# Expert config (PRD §3.2.6)
+expert:
+  r: 16
+  lora_alpha: 32
+  lora_dropout: 0.05
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
+  expert_names: ["general", "math", "code", "science", "reasoning"]
+
+# Calibration config (PRD §4.6)
+calibration:
+  temperature_scaling: true
+  isotonic_regression: true
+  num_bins: 10

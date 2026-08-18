@@ -1,0 +1,22 @@
+# Hydra configuration for ARES
+# This file configures Hydra's behavior
+
+hydra:
+  run:
+    dir: outputs/${hydra.job.override_dirname}/${now:%Y-%m-%d_%H-%M-%S}
+  sweep:
+    dir: multirun/${hydra.job.override_dirname}/${now:%Y-%m-%d_%H-%M-%S}
+    subdir: ${hydra.job.num}
+  job:
+    chdir: true
+    config:
+      override_dirname:
+        exclude_keys:
+          - experiment.seed
+          - experiment.wandb.tags
+  output_subdir: null
+  verbose: true
+
+# Default config search path
+searchpath:
+  - file://${oc.env:PROJECT_ROOT}/configs
