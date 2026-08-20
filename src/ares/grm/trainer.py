@@ -123,6 +123,9 @@ class GRMTrainer:
             feasibility_loss = self.feasibility_criterion(feasibility.squeeze(-1), batch_feasibility.float())
             loss = domain_loss + feasibility_loss
 
+            # Ensure loss is a fresh tensor to avoid "backward through graph a second time"
+            loss = loss.clone()
+
             # Backward pass
             loss.backward()
             self.optimizer.step()
