@@ -143,7 +143,7 @@ class RepresentationCollector:
                 attention_mask=attention_mask,
                 output_hidden_states=output_hidden_states,
                 output_attentions=output_attentions,
-                use_cache=False,
+                # use_cache is handled by the backbone wrapper
             )
 
         # Extract hidden states - handle different output formats
