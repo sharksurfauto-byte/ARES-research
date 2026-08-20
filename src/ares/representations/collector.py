@@ -239,7 +239,8 @@ class RepresentationCollector:
                 top2_vals = torch.topk(probs, k=min(2, probs.size(-1))).values
                 margin_val = (top2_vals[0] - top2_vals[1]).item() if top2_vals.size(0) >= 2 else top2_vals[0].item()
 
-                sample_repr = pooled[-1][i] if len(pooled) > 0 else torch.zeros(1)
+                # Squeeze batch dimension from representation
+                sample_repr = pooled[-1][i].squeeze(0) if len(pooled) > 0 else torch.zeros(self.backbone.hidden_size)
 
                 sample = RepresentationSample(
                     sample_id=f"{metadata.get('prefix', 'sample')}_{i}",
@@ -303,7 +304,10 @@ class RepresentationCollector:
                 metadata=metadata,
             )
 
-            all_representations.extend(pooled)
+            # Squeeze batch dimension from each layer's pooled representations
+            for p in pooled:
+                # p is [batch, hidden_dim], squeeze to [hidden_dim] for each sample
+                all_representations.extend(p.squeeze(0).unbind(0))
 
             if save_samples and samples is not None:
                 all_samples.extend(samples)

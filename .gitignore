@@ -76,6 +76,7 @@ multirun/
 # Weights & Biases
 wandb/
 *.wandb
+wandb_api_key
 
 # Checkpoints
 checkpoints/
