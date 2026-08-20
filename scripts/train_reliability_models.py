@@ -163,7 +163,11 @@ def main():
     # Resolve config path
     config_path = Path(args.config)
     if not config_path.is_absolute():
-        config_path = Path(__file__).parent.parent / "configs" / args.config
+        # If config already includes "configs/" prefix, use as-is from project root
+        if args.config.startswith("configs/"):
+            config_path = Path(__file__).parent.parent / args.config
+        else:
+            config_path = Path(__file__).parent.parent / "configs" / args.config
 
     # Load config
     config_dict = OmegaConf.load(str(config_path))
