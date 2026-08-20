@@ -217,6 +217,8 @@ class RepresentationCollector:
 
         # Pool representations
         pooled = self._pool_representations(hidden_states, attention_mask)
+        pooled = [p.detach() for p in pooled]
+        logits = logits.detach()
 
         # Create sample metadata (optional)
         samples = None

@@ -185,6 +185,15 @@ class GRMTrainer:
             Dictionary of training history
         """
         history = {"train": [], "val": []}
+        representations = representations.detach()
+        domain_labels = domain_labels.detach()
+        feasibility_labels = feasibility_labels.detach()
+        if val_representations is not None:
+            val_representations = val_representations.detach()
+        if val_domain_labels is not None:
+            val_domain_labels = val_domain_labels.detach()
+        if val_feasibility_labels is not None:
+            val_feasibility_labels = val_feasibility_labels.detach()
 
         for self.epoch in range(1, epochs + 1):
             # Train one epoch

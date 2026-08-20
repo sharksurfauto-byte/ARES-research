@@ -9,9 +9,14 @@ from omegaconf import DictConfig, OmegaConf
 
 @pytest.fixture
 def device():
-    """Get test device (CPU for CI, CUDA if available)."""
+    """Get test device (CPU for CI/incompatible GPUs, CUDA if functional)."""
     if torch.cuda.is_available():
-        return torch.device("cuda")
+        try:
+            t = torch.zeros(1, device="cuda")
+            _ = t + 1
+            return torch.device("cuda")
+        except Exception:
+            pass
     return torch.device("cpu")
 
 

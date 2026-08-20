@@ -113,7 +113,7 @@ def load_representations(input_dir: str) -> Dict[str, torch.Tensor]:
 
     # Stack representations into tensor
     # Each representation is [hidden_dim], stack to [N, hidden_dim]
-    reps_tensor = torch.stack(representations) if isinstance(representations[0], torch.Tensor) else torch.tensor(representations)
+    reps_tensor = (torch.stack(representations) if isinstance(representations[0], torch.Tensor) else torch.tensor(representations)).detach()
 
     # Get number of layers from collector (typically 4: -1, -6, -12, -24)
     # Each sample produces N_layers representations
