@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 import torch
 from omegaconf import DictConfig, OmegaConf
 
-from ares import load_backbone, RepresentationCollector, CollectorConfig
+from ares import load_backbone, RepresentationCollector, CollectorConfig, BackboneConfig
 from ares.utils.checkpoint import verify_checkpoint
 from ares.utils.wandb_utils import init_wandb, log_metrics
 
@@ -104,8 +104,14 @@ def main():
             "use_cache": False,
             "attn_implementation": "eager",
             "load_in_4bit": "7B" in args.model_name and "4bit" in args.model_name,
+            "bnb_4bit_quant_type": "nf4",
+            "bnb_4bit_compute_dtype": "bfloat16",
+            "bnb_4bit_use_double_quant": True,
+            "use_peft": False,
+            "gradient_checkpointing": True,
+            "hidden_state_layers": (-1, -6, -12, -24),
         }
-        backbone = load_backbone(__import__("types").SimpleNamespace(**backbone_cfg))
+        backbone = load_backbone(BackboneConfig.from_dict(backbone_cfg))
 
         # Create collector
         collector = RepresentationCollector(
