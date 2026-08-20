@@ -210,6 +210,15 @@ def main():
         logger.info(f"Input dimension: {input_dim}")
         logger.info(f"Train samples: {data['n_train']}, Val samples: {data['n_val']}")
 
+        # Validate input_dim matches expected backbone hidden size
+        expected_dim = 896  # Qwen2.5-0.5B hidden size
+        if input_dim != expected_dim:
+            raise ValueError(
+                f"Input dimension mismatch: got {input_dim}, expected {expected_dim}. "
+                f"Please re-run collect_representations.py to generate properly formatted representations. "
+                f"Old cached representations may have incorrect shape."
+            )
+
         # Initialize W&B
         wandb_logger = init_wandb(
             config={"reliability": dict(config_dict)},
