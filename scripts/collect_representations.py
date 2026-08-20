@@ -154,7 +154,7 @@ def main():
                     "metadata": metadata or {},
                 }
 
-        dataset = SyntheticDataset(max_samples=args.max_samples)
+        dataset = SyntheticDataset(n_samples=args.max_samples)
 
         # Create dataloader
         dataloader = DataLoader(
