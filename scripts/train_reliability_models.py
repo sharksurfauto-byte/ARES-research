@@ -32,7 +32,7 @@ from ares import (
 )
 from ares.utils.checkpoint import save_checkpoint, load_checkpoint
 from ares.utils.wandb_utils import init_wandb, log_metrics
-from ares.calibration import fit_temperature_scaling, compute_ece, before_after_calibration
+from ares.calibration import TemperatureScaling, fit_temperature_scaling, compute_ece, before_after_calibration
 
 
 def parse_args():
