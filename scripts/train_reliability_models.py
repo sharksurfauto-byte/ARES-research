@@ -274,14 +274,14 @@ def main():
                 # Get domain logits
                 domain_logits, feasibility, global_rel = grm(val_repr)
 
-                # Fit temperature scaling on feasibility
-                temp_scaler = TemperatureScaling(device=device)
-                temp_fit = temp_scaler.fit(
-                    feasibility,
-                    val_feas,
-                    epochs=10,
-                )
-                logger.info(f"GRM temperature: {temp_fit['temperature']:.4f}")
+            # Fit temperature scaling on feasibility
+            temp_scaler = TemperatureScaling(device=device)
+            temp_fit = temp_scaler.fit(
+                feasibility,
+                val_feas,
+                epochs=10,
+            )
+            logger.info(f"GRM temperature: {temp_fit['temperature']:.4f}")
 
         # ========== Train LRM ==========
         logger.info("=" * 50)
@@ -344,11 +344,10 @@ def main():
                 # Move to numpy for calibration
                 probs = correctness_prob.squeeze().cpu().numpy()
                 true_labels = train_labels.cpu().numpy()
-                mask = train_mask.cpu().numpy()
 
-                # Filter by mask
-                valid_probs = probs[mask > 0]
-                valid_labels = true_labels[mask > 0]
+                # Filter by valid values
+                valid_probs = probs
+                valid_labels = true_labels
 
                 if len(valid_probs) > 0 and len(valid_labels) > 0:
                     # Fit temperature scaling

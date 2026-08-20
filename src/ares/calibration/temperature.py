@@ -70,37 +70,38 @@ class TemperatureScaling(nn.Module):
         Returns:
             Dictionary with fitted temperature and metrics
         """
-        # Move to device
-        val_logits = val_logits.to(self.device)
-        val_labels = val_labels.to(self.device).float()
+        # Move to device and detach inputs to avoid backward propagation into model
+        val_logits = val_logits.to(self.device).detach()
+        val_labels = val_labels.to(self.device).float().detach()
 
-        # Optimizer for temperature only
-        optimizer = torch.optim.RMSprop([self.temperature], lr=lr, alpha=0.99)
+        # Enable grad explicitly even if caller is inside torch.no_grad()
+        with torch.enable_grad():
+            # Optimizer for temperature only
+            optimizer = torch.optim.RMSprop([self.temperature], lr=lr, alpha=0.99)
 
-        best_nll = float("inf")
-        best_temperature = self.temperature.item()
+            best_nll = float("inf")
+            best_temperature = self.temperature.item()
 
-        # Training loop
-        for epoch in range(epochs):
-            optimizer.zero_grad()
+            # Training loop
+            for epoch in range(epochs):
+                optimizer.zero_grad()
 
-            # Apply temperature and compute NLL
-            scaled_logits = self.forward(val_logits)
-            # Compute NLL: -log(p) where p is the predicted probability for the correct class
-            probs = torch.sigmoid(scaled_logits)  # For binary classification
-            nll = -(val_labels * torch.log(probs + 1e-7) +
-                    (1 - val_labels) * torch.log(1 - probs + 1e-7)).mean()
+                # Apply temperature and compute NLL
+                scaled_logits = self.forward(val_logits)
+                probs = torch.sigmoid(scaled_logits)  # For binary classification
+                nll = -(val_labels * torch.log(probs + 1e-7) +
+                        (1 - val_labels) * torch.log(1 - probs + 1e-7)).mean()
 
-            nll.backward()
-            optimizer.step()
+                nll.backward()
+                optimizer.step()
 
-            # Track best temperature
-            if nll.item() < best_nll:
-                best_nll = nll.item()
-                best_temperature = self.temperature.item()
+                # Track best temperature
+                if nll.item() < best_nll:
+                    best_nll = nll.item()
+                    best_temperature = self.temperature.item()
 
         # Set to best temperature
-        self.temperature.data = torch.tensor(best_temperature)
+        self.temperature.data = torch.tensor(best_temperature, device=self.device)
 
         return {
             "temperature": best_temperature,
