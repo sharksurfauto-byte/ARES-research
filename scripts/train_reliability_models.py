@@ -249,7 +249,7 @@ def main():
         grm_history = grm_trainer.train(
             representations=data["train_representations"].to(device),
             domain_labels=data["train_domain_labels"].to(device),
-            feasibility_labels=data["train_feasibility_labels"].to(device) if data["train_feasibility_labels"] is not None else torch.ones(data["n_train"]).to(device),
+            feasibility_labels=data["train_feasibility_labels"].to(device) if data["train_feasibility_labels"] is not None else torch.ones(data["train_representations"].shape[0], device=device),
             epochs=args.epochs,
             val_representations=data["val_representations"].to(device),
             val_domain_labels=data["val_domain_labels"].to(device) if data["val_domain_labels"] is not None else None,
@@ -269,7 +269,7 @@ def main():
             with torch.no_grad():
                 val_repr = data["val_representations"].to(device)
                 val_domain = data["val_domain_labels"].to(device)
-                val_feas = data["val_feasibility_labels"].to(device) if data["val_feasibility_labels"] is not None else torch.ones(data["n_val"]).to(device)
+                val_feas = data["val_feasibility_labels"].to(device) if data["val_feasibility_labels"] is not None else torch.ones(val_repr.shape[0], device=device)
 
                 # Get domain logits
                 domain_logits, feasibility, global_rel = grm(val_repr)
@@ -299,19 +299,18 @@ def main():
         # For LRM, we need token-level data. Create simple token-level dataset
         # from the collected representations
         train_hidden = data["train_representations"].to(device)
-        train_labels = data["train_feasibility_labels"].to(device) if data["train_feasibility_labels"] is not None else torch.ones(data["n_train"]).to(device)
+        train_labels = data["train_feasibility_labels"].to(device) if data["train_feasibility_labels"] is not None else torch.ones(train_hidden.shape[0], device=device)
 
         # Repeat representations for token-level (simulate per-token hidden states)
         # In practice, these would come from the actual backbone hidden states
         seq_len = 32  # Assume fixed sequence length
-        n_train = data["n_train"]
 
         # Tile hidden states to simulate sequence dimension
         train_hidden_tiled = train_hidden.unsqueeze(1).expand(-1, seq_len, -1).reshape(-1, input_dim)
         train_labels_tiled = train_labels.unsqueeze(1).expand(-1, seq_len).reshape(-1).float()
 
-        # Create attention mask (all 1s for simplicity)
-        train_mask = torch.ones(n_train * seq_len, device=device).float()
+        # Create attention mask matching tiled tensor size
+        train_mask = torch.ones(train_hidden_tiled.shape[0], device=device).float()
 
         lrm_trainer = LRMTrainer(
             model=lrm,

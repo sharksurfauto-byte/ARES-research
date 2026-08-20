@@ -103,6 +103,11 @@ class LRMTrainer:
             else:
                 flat_mask = torch.ones_like(flat_labels)
 
+        if flat_labels.size(0) != flat_size:
+            raise ValueError(f"correctness_labels size ({flat_labels.size(0)}) does not match token_hidden_states size ({flat_size})")
+        if flat_mask.size(0) != flat_size:
+            raise ValueError(f"attention_mask size ({flat_mask.size(0)}) does not match token_hidden_states size ({flat_size})")
+
         permutation = torch.randperm(flat_size)
         batch_size = self.config.get("batch_size", 32)
 
