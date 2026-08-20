@@ -115,35 +115,54 @@ def load_representations(input_dir: str) -> Dict[str, torch.Tensor]:
     # Each representation is [hidden_dim], stack to [N, hidden_dim]
     reps_tensor = torch.stack(representations) if isinstance(representations[0], torch.Tensor) else torch.tensor(representations)
 
-    # Create simple train/val split (90/10)
-    n = reps_tensor.shape[0]
+    # Get number of layers from collector (typically 4: -1, -6, -12, -24)
+    # Each sample produces N_layers representations
+    num_layers = 4  # default: -1, -6, -12, -24
+
+    # Number of original samples
+    n_samples = len(samples) if samples else reps_tensor.shape[0]
+
+    # Create simple train/val split (90/10) on SAMPLES first
+    n = n_samples
     perm = torch.randperm(n)
     n_val = max(1, n // 10)
     n_train = n - n_val
 
-    train_idx = perm[:n_train]
-    val_idx = perm[n_train:]
+    train_sample_idx = perm[:n_train]
+    val_sample_idx = perm[n_train:]
 
-    train_reps = reps_tensor[train_idx]
-    val_reps = reps_tensor[val_idx]
+    # Map sample indices to representation indices (each sample has num_layers representations)
+    def sample_idx_to_rep_idx(sample_idx, num_layers=4):
+        """Convert sample index to list of representation indices (one per layer)."""
+        return [sample_idx * num_layers + layer for layer in range(num_layers)]
+
+    train_rep_idx = [idx for si in train_sample_idx for idx in sample_idx_to_rep_idx(si)]
+    val_rep_idx = [idx for si in val_sample_idx for idx in sample_idx_to_rep_idx(si)]
+
+    train_reps = reps_tensor[train_rep_idx]
+    val_reps = reps_tensor[val_rep_idx]
 
     # Create labels from samples if available
     train_labels = None
     val_labels = None
 
     if samples is not None:
-        # Extract correctness labels
+        # Extract correctness labels per sample, then replicate for each layer
         correct_flags = [s.correctness for s in samples]
         correct_tensor = torch.tensor(correct_flags, dtype=torch.float)
 
-        # Split labels same way as representations
-        train_labels = correct_tensor[train_idx]
-        val_labels = correct_tensor[val_idx]
+        # Replicate labels for each layer (each sample produces num_layers representations)
+        train_labels = correct_tensor[train_sample_idx].repeat_interleave(num_layers)
+        val_labels = correct_tensor[val_sample_idx].repeat_interleave(num_layers)
 
-    # Create domain labels (simple: use sample domain)
+    # Create domain labels - replicate per layer
     domain2idx = {"general": 0, "math": 1, "code": 2, "science": 3, "reasoning": 4}
-    train_domain = torch.tensor([domain2idx.get(samples[i].domain, 0) for i in train_idx] if samples else torch.zeros(n_train, dtype=torch.long))
-    val_domain = torch.tensor([domain2idx.get(samples[i].domain, 0) for i in val_idx] if samples else torch.zeros(n_val, dtype=torch.long))
+    if samples:
+        train_domain = torch.tensor([domain2idx.get(samples[i].domain, 0) for i in train_sample_idx]).repeat_interleave(num_layers)
+        val_domain = torch.tensor([domain2idx.get(samples[i].domain, 0) for i in val_sample_idx]).repeat_interleave(num_layers)
+    else:
+        train_domain = torch.zeros(len(train_rep_idx), dtype=torch.long)
+        val_domain = torch.zeros(len(val_rep_idx), dtype=torch.long)
 
     return {
         "train_representations": train_reps,
