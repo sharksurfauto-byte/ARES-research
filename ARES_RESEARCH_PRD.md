@@ -272,14 +272,14 @@ After all training:
 
 ## 6. 4-Week Implementation Timeline
 
-### Week 1: Infrastructure & Backbone
-- [ ] Set up repo with model-agnostic backbone abstraction
-- [ ] Qwen2.5-0.5B loading + verification
-- [ ] DDP setup for 2x T4 Kaggle
-- [ ] Config system (Hydra/OmegaConf)
-- [ ] W&B experiment tracking
-- [ ] Checkpoint system with SHA256 metadata
-- **Milestone**: Can load Qwen, run forward, extract hidden states, save checkpoints with verification
+### Week 1: Infrastructure & Backbone ✅ COMPLETED (2026-08-18)
+- [x] Set up repo with model-agnostic backbone abstraction
+- [x] Qwen2.5-0.5B loading + verification
+- [x] DDP setup for 2x T4 Kaggle
+- [x] Config system (Hydra/OmegaConf)
+- [x] W&B experiment tracking
+- [x] Checkpoint system with SHA256 metadata
+- **Milestone**: Can load Qwen, run forward, extract hidden states, save checkpoints with verification — **VERIFIED ON KAGGLE**
 
 ### Week 2: Representation & Reliability Probes
 - [ ] Multi-layer representation collector

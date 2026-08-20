@@ -1,0 +1,46 @@
+# Representation collection configuration
+# PRD §4.1.1: Representation Collection Dataset
+
+defaults:
+  - backbone: qwen_0_5b
+  - _self_
+
+# Data configuration
+data:
+  dataset_name: "synthetic"  # or wikitext, gsm8k, mbpp, ai2_arc
+  dataset_split: "train"
+  max_samples: 1000  # Max samples to collect
+  batch_size: 4
+  num_workers: 2
+  max_length: 2048
+
+# Backbone configuration
+backbone:
+  name: "Qwen/Qwen2.5-0.5B"
+  torch_dtype: "bfloat16"
+  device_map: "auto"
+  use_cache: false
+  attn_implementation: "eager"
+  load_in_4bit: false
+
+# Representation collector configuration
+collector:
+  # Which layers to extract (PRD §3.2.2: {-1, -6, -12, -24})
+  default_layers: [-1, -6, -12, -24]
+
+  # Pooling method (PRD §3.2.2: last-token, mean-pooled, max-pooled)
+  default_pooling: "mean"
+
+  # Extract per-token representations for LRM
+  extract_per_token: true
+
+  # Device
+  device: "auto"
+
+# Analysis settings
+analysis:
+  # Number of bins for ECE computation
+  ece_bins: 10
+
+  # Whether to compute entropy/margin
+  compute_entropy_margin: true

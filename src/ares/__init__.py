@@ -1,12 +1,11 @@
 """ARES: Adaptive Reliability with Expert Specialization.
 
-A framework for learned adaptive routing on frozen pretrained language models
-with GRM+LRM reliability signals and specialized LoRA experts.
-
 PRD: ARES_RESEARCH_PRD.md
+
+Updated with Week 2 modules: Representation Collector, GRM, LRM, Calibration.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .backbone import (
     BackboneConfig,
@@ -56,6 +55,27 @@ from .utils import (
     log_metrics,
     log_model_artifact,
     finish_wandb,
+)
+from .representations import (
+    RepresentationCollector,
+    PoolMethod,
+    pool_hidden_state,
+    last_token_pool,
+    mean_pool,
+    max_pool,
+    RepresentationCollector,
+    CollectorConfig,
+)
+from .grm import GRM, GRMTrainer
+from .lrm import LRM, LRMTrainer
+from .calibration import (
+    TemperatureScaling,
+    fit_temperature_scaling,
+    fit_isotonic_regression,
+    apply_isotonic_regression,
+    compute_ece,
+    compute_brier_score,
+    before_after_calibration,
 )
 
 __all__ = [
@@ -107,4 +127,28 @@ __all__ = [
     "log_metrics",
     "log_model_artifact",
     "finish_wandb",
+    # Representations
+    "RepresentationCollector",
+    "PoolMethod",
+    "pool_hidden_state",
+    "last_token_pool",
+    "mean_pool",
+    "max_pool",
+    "RepresentationSample",
+    "CollectorConfig",
+    "RepresentationDataset",
+    # GRM
+    "GRM",
+    "GRMTrainer",
+    # LRM
+    "LRM",
+    "LRMTrainer",
+    # Calibration
+    "TemperatureScaling",
+    "fit_temperature_scaling",
+    "fit_isotonic_regression",
+    "apply_isotonic_regression",
+    "before_after_calibration",
+    "compute_ece",
+    "compute_brier_score",
 ]
