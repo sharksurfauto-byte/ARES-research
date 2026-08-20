@@ -127,8 +127,7 @@ class LRMTrainer:
             valid_count = batch_mask.sum()
 
             if valid_count > 0:
-                loss = masked_loss.sum() / valid_count
-                loss = loss.clone()  # Avoid "backward through graph a second time"
+                loss = (masked_loss.sum() / valid_count).clone()
                 loss.backward()
                 self.optimizer.step()
 

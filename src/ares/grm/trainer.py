@@ -118,13 +118,15 @@ class GRMTrainer:
             # Forward pass
             domain_logits, feasibility, global_rel = self.model(batch_repr)
 
-            # Compute losses
+            # Compute losses with fresh tensors to avoid "backward through graph a second time"
             domain_loss = self.domain_criterion(domain_logits, batch_domain)
-            feasibility_loss = self.feasibility_criterion(feasibility.squeeze(-1), batch_feasibility.float())
-            loss = domain_loss + feasibility_loss
 
-            # Ensure loss is a fresh tensor to avoid "backward through graph a second time"
-            loss = loss.clone()
+            # Squeeze feasibility with clone to avoid view issues
+            feasibility_squeezed = feasibility.squeeze(-1).clone()
+            feasibility_loss = self.feasibility_criterion(feasibility_squeezed, batch_feasibility.float())
+
+            # Combine losses into fresh tensor
+            loss = domain_loss + feasibility_loss
 
             # Backward pass
             loss.backward()
