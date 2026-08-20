@@ -63,7 +63,8 @@ from .representations import (
     last_token_pool,
     mean_pool,
     max_pool,
-    RepresentationCollector,
+    RepresentationSample,
+    RepresentationDataset,
     CollectorConfig,
 )
 from .grm import GRM, GRMTrainer

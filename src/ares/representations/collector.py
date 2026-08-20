@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 import torch.nn.functional as F
 from dataclasses import dataclass, field
 
+from .pooling import last_token_pool, mean_pool, max_pool
+
 # Type aliases
 LayerIndices = Tuple[int, ...]
 HiddenStates = List[torch.Tensor]  # List of [batch, seq_len, hidden_dim]
@@ -226,22 +228,31 @@ class RepresentationCollector:
             domain = metadata.get("domain", "general")
             task = metadata.get("task", "classification")
 
-            # Compute prediction from logits
-            preds = torch.argmax(logits, dim=-1)
+            # Compute prediction from logits (take last token)
+            preds = torch.argmax(logits, dim=-1)  # [batch, seq_len]
 
             for i in range(batch_size):
+                # Take last token's prediction
+                last_pred = preds[i, -1] if preds.dim() > 1 else preds[i]
+                last_logits = logits[i, -1] if logits.dim() > 2 else logits[i]
+                probs = torch.softmax(last_logits, dim=-1)
+                top2_vals = torch.topk(probs, k=min(2, probs.size(-1))).values
+                margin_val = (top2_vals[0] - top2_vals[1]).item() if top2_vals.size(0) >= 2 else top2_vals[0].item()
+
+                sample_repr = pooled[-1][i] if len(pooled) > 0 else torch.zeros(1)
+
                 sample = RepresentationSample(
                     sample_id=f"{metadata.get('prefix', 'sample')}_{i}",
                     domain=domain,
                     task=task,
-                    layer=int(self.layers[-1]) if len(self.layers) == 1 else int(self.layers[0]) if self.layers else 0,
-                    representation=pooled[i] if i < len(pooled) else pooled[0],
-                    logits=logits[i],
-                    prediction=str(preds[i].item()),
-                    correctness=(labels is not None and i < labels.shape[0] and labels[i].item() == preds[i].item()),
-                    confidence=torch.softmax(logits[i], dim=-1).max().item(),
-                    entropy=self._compute_entropy(torch.softmax(logits[i], dim=-1)),
-                    margin=(torch.softmax(logits[i], dim=-1)[0] - torch.softmax(logits[i], dim=-1)[1]).item(),
+                    layer=int(self.layers[-1]) if len(self.layers) > 0 else 0,
+                    representation=sample_repr,
+                    logits=last_logits,
+                    prediction=str(last_pred.item()),
+                    correctness=bool(labels is not None and i < labels.shape[0] and labels[i].item() == last_pred.item()),
+                    confidence=probs.max().item(),
+                    entropy=self._compute_entropy(probs),
+                    margin=margin_val,
                     attention_mask=attention_mask[i] if attention_mask is not None else None,
                 )
                 samples.append(sample)
@@ -299,13 +310,14 @@ class RepresentationCollector:
 
         # Save to dataset if output_dir provided
         if output_dir is not None and save_samples:
+            import os
+            os.makedirs(output_dir, exist_ok=True)
             output_path = f"{output_dir}/representations.pt"
             torch.save({
                 "samples": all_samples,
                 "representations": all_representations,
             }, output_path)
-            if __import__("builtins").__import__("os").path.exists(output_dir):
-                print(f"Saved {len(all_samples)} representations to {output_path}")
+            print(f"Saved {len(all_samples)} representations to {output_path}")
 
         return all_samples, all_representations
 

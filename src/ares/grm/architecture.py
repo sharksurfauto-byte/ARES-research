@@ -89,18 +89,20 @@ class GRM(nn.Module):
             - feasibility: [batch, 1] — "is this representation reliable?"
             - global_reliability: [batch, 1]
         """
-        # Expand input to sequence length 1 for transformer
-        # x: [batch, input_dim] -> [batch, 1, input_dim]
-        x_expanded = x.unsqueeze(1)
+        # Ensure 3D input [batch, seq_len, input_dim] for transformer
+        if x.dim() == 2:
+            x_seq = x.unsqueeze(1)
+        else:
+            x_seq = x
 
         # Project to hidden_dim if needed
         if self.input_projection is not None:
-            x_proj = self.input_projection(x_expanded.squeeze(1)).unsqueeze(1)
+            x_proj = self.input_projection(x_seq)
         else:
-            x_proj = x_expanded
+            x_proj = x_seq
 
         # Apply transformer
-        x_trans = self.transformer(x_proj)  # [batch, 1, hidden_dim]
+        x_trans = self.transformer(x_proj)  # [batch, seq_len, hidden_dim]
 
         # Take the [CLS] token (first token) as the aggregated representation
         cls_token = x_trans[:, 0, :]  # [batch, hidden_dim]

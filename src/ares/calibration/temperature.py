@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from typing import Dict, Any, Optional
 
 
-class TemperatureScaling:
+class TemperatureScaling(nn.Module):
     """Learnable temperature scaling for probabilistic calibration.
 
     Based on PRD §4.6: After all training:
@@ -20,20 +20,22 @@ class TemperatureScaling:
     4. Report: ECE before/after calibration, Brier score, reliability diagrams
     """
 
-    def __init__(self, model: nn.Module, device: torch.device):
+    def __init__(self, model: Optional[nn.Module] = None, device: Optional[torch.device] = None):
         """Initialize temperature scaling.
 
         Args:
-            model: The model to calibrate (should output logits)
+            model: Optional model to calibrate (should output logits)
             device: Computation device
         """
+        super().__init__()
         self.model = model
-        self.device = device
-        self.temperature = nn.Parameter(torch.tensor(1.0))
+        self.device = device or torch.device("cpu")
+        self.temperature = nn.Parameter(torch.tensor(1.0, device=self.device))
 
-        # Freeze all model parameters except temperature
-        for param in self.model.parameters():
-            param.requires_grad = False
+        if self.model is not None:
+            # Freeze all model parameters except temperature
+            for param in self.model.parameters():
+                param.requires_grad = False
 
         self.temperature.requires_grad = True
 
@@ -159,7 +161,6 @@ def fit_temperature_scaling(
     Returns:
         Dictionary with fitted temperature and metrics
     """
-    scaler = TemperatureScaling(nn.Identity(), torch.device("cpu"))
-    # Override to accept standalone logits (no model forward)
-    scaler.forward = lambda x: x / scaler.temperature
+    device = logits.device if isinstance(logits, torch.Tensor) else torch.device("cpu")
+    scaler = TemperatureScaling(device=device)
     return scaler.fit(logits, labels, epochs=epochs, lr=lr)

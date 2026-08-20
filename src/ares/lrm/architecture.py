@@ -83,18 +83,27 @@ class LRM(nn.Module):
             - correctness_prob: [batch, seq_len] — P(correct|H_token)
             - failure_risk: [batch, seq_len] — 1 - correctness_prob
         """
+        is_2d = (x.dim() == 2)
+        if is_2d:
+            x_seq = x.unsqueeze(1)
+        else:
+            x_seq = x
+
         # Project to hidden_dim if needed
         if self.input_projection is not None:
-            x = self.input_projection(x)
+            x_seq = self.input_projection(x_seq)
 
         # Apply transformer
-        x_trans = self.transformer(x)  # [batch, seq_len, hidden_dim]
+        x_trans = self.transformer(x_seq)  # [batch, seq_len, hidden_dim]
 
         # Output projection for binary classification
         logits = self.output_head(x_trans).squeeze(-1)  # [batch, seq_len]
 
+        if is_2d:
+            logits = logits.squeeze(-1)
+
         # Sigmoid for probability
-        correctness_prob = torch.sigmoid(logits)  # [batch, seq_len]
-        failure_risk = 1.0 - correctness_prob  # [batch, seq_len]
+        correctness_prob = torch.sigmoid(logits)
+        failure_risk = 1.0 - correctness_prob
 
         return correctness_prob, failure_risk

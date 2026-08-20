@@ -3,7 +3,8 @@
 Extracts multi-layer hidden states from frozen backbone for reliability estimation.
 """
 
-from .collector import RepresentationCollector, CollectorConfig
+from .collector import RepresentationCollector, CollectorConfig, RepresentationSample
+from .dataset import RepresentationDataset
 from .pooling import (
     PoolMethod,
     pool_hidden_state,
@@ -11,7 +12,6 @@ from .pooling import (
     mean_pool,
     max_pool,
 )
-from .collector import RepresentationSample
 
 __all__ = [
     "RepresentationCollector",
@@ -21,5 +21,6 @@ __all__ = [
     "mean_pool",
     "max_pool",
     "RepresentationSample",
+    "RepresentationDataset",
     "CollectorConfig",
 ]

@@ -184,6 +184,6 @@ def aggregate_layers(
         # Simple weighted average by layer depth (later layers more important)
         weights = torch.linspace(0.5, 1.5, stacked.size(0), device=stacked.device)
         weights = weights / weights.sum()
-        return (stacked * weights.unsqueeze(-1)).sum(dim=0)
+        return (stacked * weights.view(-1, 1, 1)).sum(dim=0)
     else:
         raise ValueError(f"Unknown aggregation method: {aggregation}")

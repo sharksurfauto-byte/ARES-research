@@ -78,11 +78,16 @@ def main():
     args = parse_args()
 
     # Resolve config path
-    config_path = Path("configs/reliability") / args.config
+    config_path = Path(args.config)
+    if not config_path.is_absolute() and not config_path.exists():
+        config_path = Path("configs/reliability") / args.config
 
-    # Load config
-    config_dict = OmegaConf.load(str(config_path))
-    cfg = OmegaConf.structured(CollectorConfig) if hasattr(CollectorConfig, '__dataclass_fields__') else config_dict
+    # Load config if file exists
+    if config_path.exists():
+        config_dict = OmegaConf.load(str(config_path))
+    else:
+        config_dict = {}
+    cfg = CollectorConfig()
 
     # Set device
     if args.device == "auto":
@@ -99,11 +104,11 @@ def main():
         backbone_cfg = {
             "name": args.model_name,
             "revision": "main",
-            "torch_dtype": "bfloat16" if not args.model_name.__contains__("4bit") else "float16",
-            "device_map": "auto",
+            "torch_dtype": "float32" if device.type == "cpu" else ("bfloat16" if "4bit" not in args.model_name else "float16"),
+            "device_map": "cpu" if device.type == "cpu" else "auto",
             "use_cache": False,
             "attn_implementation": "eager",
-            "load_in_4bit": "7B" in args.model_name and "4bit" in args.model_name,
+            "load_in_4bit": False if device.type == "cpu" else ("7B" in args.model_name and "4bit" in args.model_name),
             "bnb_4bit_quant_type": "nf4",
             "bnb_4bit_compute_dtype": "bfloat16",
             "bnb_4bit_use_double_quant": True,
@@ -138,8 +143,9 @@ def main():
             def __getitem__(self, idx):
                 # Fixed length sequences for batching
                 seq_len = self.max_len
-                input_ids = torch.randint(0, self.vocab_size, (1, seq_len))
-                attention_mask = torch.ones(1, seq_len)
+                # Return 1D tensors so DataLoader can batch properly
+                input_ids = torch.randint(0, self.vocab_size, (seq_len,))
+                attention_mask = torch.ones(seq_len, dtype=torch.long)
                 return {
                     "input_ids": input_ids,
                     "attention_mask": attention_mask,

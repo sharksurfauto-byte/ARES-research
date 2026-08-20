@@ -7,7 +7,6 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from typing import Dict, Any, Optional, List
-from tqdm import tqdm
 
 from .architecture import LRM
 from ..utils.checkpoint import save_checkpoint, load_checkpoint
@@ -20,7 +19,7 @@ class LRMTrainer:
     PRD §4.3: LRM Training
     1. Per-token correctness prediction
     2. Binary classification: correct/incorrect given token hidden state
-    3. Loss: BCE with class weighting (handle imbalance)
+    3. Loss: Weighted BCE to handle class imbalance
     """
 
     def __init__(
@@ -38,14 +37,13 @@ class LRMTrainer:
             config: Training configuration
             wandb_logger: W&B logger instance
         """
-        self.model = model
+        self.model = model.to(device)
         self.device = device
         self.config = config or {}
         self.wandb_logger = wandb_logger
 
-        # Loss function with class weighting for imbalance
-        pos_weight = self.config.get("pos_weight", 1.0)
-        self.criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor(pos_weight).to(device))
+        # Class weighting for imbalance
+        self.pos_weight = float(self.config.get("pos_weight", 1.0))
 
         # Optimizer
         self.optimizer = torch.optim.Adam(
@@ -65,16 +63,6 @@ class LRMTrainer:
         self.epoch = 0
         self.global_step = 0
 
-    def _move_to_device(self, batch: Dict[str, Any]) -> Dict[str, Any]:
-        """Move batch tensors to device."""
-        moved = {}
-        for k, v in batch.items():
-            if isinstance(v, torch.Tensor):
-                moved[k] = v.to(self.device)
-            else:
-                moved[k] = v
-        return moved
-
     def train_epoch(
         self,
         token_hidden_states: torch.Tensor,
@@ -84,75 +72,74 @@ class LRMTrainer:
         """Train one epoch.
 
         Args:
-            token_hidden_states: [batch, seq_len, hidden_dim] per-token hidden states
-            correctness_labels: [batch, seq_len] binary labels (1=correct, 0=incorrect)
-            attention_mask: [batch, seq_len] - 1 for valid, 0 for padding
+            token_hidden_states: [batch, seq_len, hidden_dim] or [N, hidden_dim] hidden states
+            correctness_labels: [batch, seq_len] or [N] binary labels (1=correct, 0=incorrect)
+            attention_mask: Optional [batch, seq_len] or [N] mask (1 for valid, 0 for padding)
 
         Returns:
             Dictionary of average losses and metrics
         """
         self.model.train()
-        total_loss = 0.0
+        accumulated_loss = 0.0
         total_correct = 0
         total_tokens = 0
 
-        # Create dataset indices for shuffling
-        n = token_hidden_states.shape[0]  # batch size
-        seq_len = token_hidden_states.shape[1]
-        permutation = torch.randperm(n * seq_len)
+        # Handle batch & sequence dimensions
+        if token_hidden_states.dim() == 3:
+            n, seq_len, hidden_dim = token_hidden_states.shape
+            flat_size = n * seq_len
+            flat_hidden = token_hidden_states.reshape(flat_size, hidden_dim)
+            flat_labels = correctness_labels.reshape(-1).float()
+            if attention_mask is not None:
+                flat_mask = attention_mask.reshape(-1).float()
+            else:
+                flat_mask = torch.ones_like(flat_labels)
+        else:
+            flat_size, hidden_dim = token_hidden_states.shape
+            flat_hidden = token_hidden_states
+            flat_labels = correctness_labels.reshape(-1).float()
+            if attention_mask is not None:
+                flat_mask = attention_mask.reshape(-1).float()
+            else:
+                flat_mask = torch.ones_like(flat_labels)
 
-        # Process in batches (flatten batch+seq for simplicity)
-        flat_size = n * seq_len
+        permutation = torch.randperm(flat_size)
         batch_size = self.config.get("batch_size", 32)
 
-        # Flatten the hidden states and labels for batching
-        flat_hidden = token_hidden_states.reshape(flat_size, -1)
-        flat_labels = correctness_labels.reshape(-1).float()
-
-        if attention_mask is not None:
-            flat_mask = attention_mask.reshape(-1).float()
-        else:
-            flat_mask = torch.ones_like(flat_labels)
-
-        # Process in batches
         for start in range(0, flat_size, batch_size):
             end = min(start + batch_size, flat_size)
-            batch_indices = permutation[start:end] if start == 0 else torch.arange(start, end)
+            batch_indices = permutation[start:end]
 
-            batch_hidden = flat_hidden[batch_indices]
-            batch_labels = flat_labels[batch_indices]
-            batch_mask = flat_mask[batch_indices]
+            batch_hidden = flat_hidden[batch_indices].to(self.device)
+            batch_labels = flat_labels[batch_indices].to(self.device)
+            batch_mask = flat_mask[batch_indices].to(self.device)
 
             self.optimizer.zero_grad()
 
-            # Forward pass
             correctness_prob, failure_risk = self.model(batch_hidden)
+            prob_flat = correctness_prob.squeeze(-1) if correctness_prob.dim() > 1 else correctness_prob
 
-            # Only compute loss on valid (non-padded) tokens
-            loss = self.criterion(correctness_prob.squeeze(-1) if correctness_prob.dim() > 1 else correctness_prob.squeeze(),
-                                  batch_labels) * batch_mask
-            loss = loss.sum() / batch_mask.sum()  # Normalize by valid tokens
+            eps = 1e-7
+            prob_clamped = prob_flat.clamp(min=eps, max=1.0 - eps)
+            weight = torch.where(batch_labels == 1.0, self.pos_weight, 1.0)
+            element_loss = -weight * (batch_labels * torch.log(prob_clamped) + (1.0 - batch_labels) * torch.log(1.0 - prob_clamped))
+            masked_loss = element_loss * batch_mask
+            valid_count = batch_mask.sum()
 
-            # Backward pass
-            loss.backward()
-            self.optimizer.step()
+            if valid_count > 0:
+                loss = masked_loss.sum() / valid_count
+                loss.backward()
+                self.optimizer.step()
 
-            # Stats
-            total_loss = loss.item() * batch_mask.sum().item()
-            # Count correct predictions (threshold at 0.5)
-            pred_correct = (correctness_prob.squeeze() > 0.5).float()
-            correct_tokens = (pred_correct * batch_mask).sum().item()
-            total_valid_tokens = batch_mask.sum().item()
+                accumulated_loss += loss.item() * valid_count.item()
+                pred_correct = (prob_flat > 0.5).float()
+                correct_tokens = ((pred_correct == batch_labels) * batch_mask).sum().item()
+                total_correct += correct_tokens
+                total_tokens += valid_count.item()
 
-            total_loss += total_loss  # Accumulate (actually we should track differently)
-            total_correct += correct_tokens
-            total_tokens += total_valid_tokens
-
-        # Compute averages
-        avg_loss = total_loss / total_tokens if total_tokens > 0 else 0.0
+        avg_loss = accumulated_loss / total_tokens if total_tokens > 0 else 0.0
         accuracy = total_correct / total_tokens if total_tokens > 0 else 0.0
 
-        # Step scheduler
         self.scheduler.step()
 
         return {
@@ -175,9 +162,9 @@ class LRMTrainer:
         """Full training loop.
 
         Args:
-            token_hidden_states: [N, seq_len, hidden_dim] tensor
-            correctness_labels: [N, seq_len] binary labels
-            attention_mask: Optional [N, seq_len] mask
+            token_hidden_states: Hidden states tensor
+            correctness_labels: Binary correctness labels
+            attention_mask: Optional attention mask
             epochs: Number of training epochs
             val_hidden_states: Optional validation hidden states
             val_labels: Optional validation labels
@@ -191,11 +178,9 @@ class LRMTrainer:
         for self.epoch in range(1, epochs + 1):
             # Train one epoch
             train_metrics = self.train_epoch(
-                token_hidden_states,
-                correctness_labels,
-                val_hidden_states is not None and val_labels is not None
-                and val_mask is not None
-                and (val_hidden_states.shape[0] > 0),
+                token_hidden_states=token_hidden_states,
+                correctness_labels=correctness_labels,
+                attention_mask=attention_mask,
             )
             history["train"].append(train_metrics)
 
@@ -212,16 +197,10 @@ class LRMTrainer:
 
             # Log to W&B
             if self.wandb_logger is not None:
-                log_metrics(self.wandb_logger, {f"lrm/{k}": v for k, v in train_metrics.items()},
-                           step=self.epoch)
-
-            if __import__("builtins").__import__("sys").argv[0].endswith("__main__") or __import__("sys").platform != "cli":
-                pass  # Skip printing in non-interactive mode
-            else:
-                print(
-                    f"LRM Epoch {self.epoch}/{epochs} | "
-                    f"Loss: {train_metrics['loss']:.4f} | "
-                    f"Accuracy: {train_metrics['accuracy']:.4f}"
+                log_metrics(
+                    self.wandb_logger,
+                    {f"lrm/{k}": v for k, v in train_metrics.items()},
+                    step=self.epoch,
                 )
 
         return history
@@ -230,53 +209,61 @@ class LRMTrainer:
         self,
         val_hidden_states: torch.Tensor,
         val_labels: torch.Tensor,
-        val_mask: torch.Tensor,
+        val_mask: Optional[torch.Tensor] = None,
     ) -> Dict[str, float]:
         """Validation pass."""
         self.model.eval()
-        total_loss = 0.0
+        accumulated_loss = 0.0
         total_correct = 0
-        total_valid_tokens = 0
+        total_tokens = 0
+
+        if val_hidden_states.dim() == 3:
+            n, seq_len, hidden_dim = val_hidden_states.shape
+            flat_size = n * seq_len
+            flat_hidden = val_hidden_states.reshape(flat_size, hidden_dim)
+            flat_labels = val_labels.reshape(-1).float()
+            if val_mask is not None:
+                flat_mask = val_mask.reshape(-1).float()
+            else:
+                flat_mask = torch.ones_like(flat_labels)
+        else:
+            flat_size, hidden_dim = val_hidden_states.shape
+            flat_hidden = val_hidden_states
+            flat_labels = val_labels.reshape(-1).float()
+            if val_mask is not None:
+                flat_mask = val_mask.reshape(-1).float()
+            else:
+                flat_mask = torch.ones_like(flat_labels)
 
         batch_size = 32
         with torch.no_grad():
-            n = val_hidden_states.shape[0]
-            seq_len = val_hidden_states.shape[1]
-            flat_size = n * seq_len
-
-            # Flatten
-            flat_hidden = val_hidden_states.reshape(flat_size, -1)
-            flat_labels = val_labels.reshape(-1).float()
-            flat_mask = val_mask.reshape(-1).float()
-
             for start in range(0, flat_size, batch_size):
                 end = min(start + batch_size, flat_size)
                 batch_indices = torch.arange(start, end)
-                batch_hidden = flat_hidden[batch_indices]
-                batch_labels = flat_labels[batch_indices]
-                batch_mask = flat_mask[batch_indices]
+                batch_hidden = flat_hidden[batch_indices].to(self.device)
+                batch_labels = flat_labels[batch_indices].to(self.device)
+                batch_mask = flat_mask[batch_indices].to(self.device)
 
                 correctness_prob, failure_risk = self.model(batch_hidden)
+                prob_flat = correctness_prob.squeeze(-1) if correctness_prob.dim() > 1 else correctness_prob
 
-                # Compute loss only on valid tokens
-                loss = nn.BCEWithLogitsLoss(
-                    pos_weight=torch.tensor(self.config.get("pos_weight", 1.0)).to(self.device)
-                )(correctness_prob.squeeze(), batch_labels)
-                # Mask the loss
-                masked_loss = loss * batch_mask
-                loss_value = masked_loss.sum().item() / batch_mask.sum().item()
+                eps = 1e-7
+                prob_clamped = prob_flat.clamp(min=eps, max=1.0 - eps)
+                weight = torch.where(batch_labels == 1.0, self.pos_weight, 1.0)
+                element_loss = -weight * (batch_labels * torch.log(prob_clamped) + (1.0 - batch_labels) * torch.log(1.0 - prob_clamped))
+                masked_loss = element_loss * batch_mask
+                valid_count = batch_mask.sum()
 
-                total_loss += masked_loss.sum().item()
-                # Count correct
-                pred_correct = (correctness_prob.squeeze() > 0.5).float()
-                correct_tokens = (pred_correct * batch_mask).sum().item()
-                total_correct += correct_tokens  # FIXED: accumulate correct count
-                total_valid_tokens += batch_mask.sum().item()
+                if valid_count > 0:
+                    accumulated_loss += masked_loss.sum().item()
+                    pred_correct = (prob_flat > 0.5).float()
+                    correct_tokens = ((pred_correct == batch_labels) * batch_mask).sum().item()
+                    total_correct += correct_tokens
+                    total_tokens += valid_count.item()
 
-        n_batches = max(1, (flat_size + batch_size - 1) // batch_size)
         return {
-            "val_loss": total_loss / n_batches if n_batches > 0 else 0.0,
-            "val_accuracy": total_correct / total_valid_tokens if total_valid_tokens > 0 else 0.0,
+            "val_loss": accumulated_loss / total_tokens if total_tokens > 0 else 0.0,
+            "val_accuracy": total_correct / total_tokens if total_tokens > 0 else 0.0,
         }
 
     def save(self, path: str, config: Optional[Dict[str, Any]] = None):
@@ -292,8 +279,6 @@ class LRMTrainer:
             config=config,
             verify_sha256=True,
         )
-        if __import__("sys").platform != "cli" or "cuda" in str(__import__("torch").cuda.is_available()):
-            print(f"LRM checkpoint saved to {path}")
 
     @classmethod
     def load(

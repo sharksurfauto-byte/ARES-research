@@ -140,8 +140,8 @@ def load_representations(input_dir: str) -> Dict[str, torch.Tensor]:
 
     # Create domain labels (simple: use sample domain)
     domain2idx = {"general": 0, "math": 1, "code": 2, "science": 3, "reasoning": 4}
-    train_domain = torch.tensor([domain2idx.get(s.domain, 0) for s in samples[:n_train]] if samples else torch.zeros(n_train, dtype=torch.long))
-    val_domain = torch.tensor([domain2idx.get(s.domain, 0) for s in samples[n_train:]] if samples else torch.zeros(n_val, dtype=torch.long))
+    train_domain = torch.tensor([domain2idx.get(samples[i].domain, 0) for i in train_idx] if samples else torch.zeros(n_train, dtype=torch.long))
+    val_domain = torch.tensor([domain2idx.get(samples[i].domain, 0) for i in val_idx] if samples else torch.zeros(n_val, dtype=torch.long))
 
     return {
         "train_representations": train_reps,
@@ -241,9 +241,10 @@ def main():
                 domain_logits, feasibility, global_rel = grm(val_repr)
 
                 # Fit temperature scaling on feasibility
-                temp_fit = TemperatureScaling().fit(
-                    torch.cat([domain_logits.unsqueeze(0), global_rel.unsqueeze(0)]).transpose(0, 1).reshape(-1, 1),
-                    val_feas.cpu(),
+                temp_scaler = TemperatureScaling(device=device)
+                temp_fit = temp_scaler.fit(
+                    feasibility,
+                    val_feas,
                     epochs=10,
                 )
                 logger.info(f"GRM temperature: {temp_fit['temperature']:.4f}")
@@ -318,9 +319,8 @@ def main():
                 if len(valid_probs) > 0 and len(valid_labels) > 0:
                     # Fit temperature scaling
                     temp_fit = fit_temperature_scaling(
-                        None,  # model not needed for standalone temp scaling
-                        torch.tensor(valid_probs),
-                        torch.tensor(valid_labels),
+                        torch.tensor(valid_probs, device=device),
+                        torch.tensor(valid_labels, device=device),
                         epochs=10,
                     )
                     logger.info(f"LRM temperature: {temp_fit['temperature']:.4f}")

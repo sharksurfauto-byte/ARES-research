@@ -109,9 +109,9 @@ class GRMTrainer:
         batch_size = self.config.get("batch_size", 32)
         for start in range(0, n, batch_size):
             indices = permutation[start:start + batch_size]
-            batch_repr = representations[indices]
-            batch_domain = domain_labels[indices]
-            batch_feasibility = feasibility_labels[indices]
+            batch_repr = representations[indices].to(self.device)
+            batch_domain = domain_labels[indices].to(self.device)
+            batch_feasibility = feasibility_labels[indices].to(self.device)
 
             self.optimizer.zero_grad()
 
@@ -120,7 +120,7 @@ class GRMTrainer:
 
             # Compute losses
             domain_loss = self.domain_criterion(domain_logits, batch_domain)
-            feasibility_loss = self.feasibility_criterion(feasibility.squeeze(), batch_feasibility.float())
+            feasibility_loss = self.feasibility_criterion(feasibility.squeeze(-1), batch_feasibility.float())
             loss = domain_loss + feasibility_loss
 
             # Backward pass
@@ -135,8 +135,8 @@ class GRMTrainer:
             # Accuracy
             pred_domain = torch.argmax(domain_logits, dim=-1)
             correct_domain += (pred_domain == batch_domain).sum().item()
-            correct_feasibility += ((feasibility.squeeze() > 0.5).float() == batch_feasibility.float()).sum().item()
-            total_samples += batch_size.size(0) if hasattr(batch_size, '__len__') else batch_size
+            correct_feasibility += ((feasibility.squeeze(-1) > 0.5).float() == batch_feasibility.float()).sum().item()
+            total_samples += batch_repr.size(0)
 
         # Step scheduler
         self.scheduler.step()
@@ -239,13 +239,13 @@ class GRMTrainer:
 
                 domain_logits, feasibility, global_rel = self.model(batch_repr)
                 domain_loss = nn.CrossEntropyLoss()(domain_logits, batch_domain)
-                feasibility_loss = nn.BCELoss()(feasibility.squeeze(), batch_feasibility.float())
+                feasibility_loss = nn.BCELoss()(feasibility.squeeze(-1), batch_feasibility.float())
                 loss = domain_loss + feasibility_loss
 
                 total_loss += loss.item()
                 pred_domain = torch.argmax(domain_logits, dim=-1)
                 correct_domain += (pred_domain == batch_domain).sum().item()
-                correct_feasibility += ((feasibility.squeeze() > 0.5).float() == batch_feasibility.float()).sum().item()
+                correct_feasibility += ((feasibility.squeeze(-1) > 0.5).float() == batch_feasibility.float()).sum().item()
 
         n_batches = max(1, (total_samples + batch_size - 1) // batch_size)
         return {

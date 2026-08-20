@@ -137,3 +137,5 @@ kaggle.json
 *.onnx
 *.engine
 *.plan
+
+input.txt
