@@ -136,8 +136,10 @@ def main():
                 return self.n_samples
 
             def __getitem__(self, idx):
-                input_ids = torch.randint(0, self.vocab_size, (1, torch.randint(1, self.max_len, (1,)).item()))
-                attention_mask = torch.ones(1, input_ids.shape[1])
+                # Fixed length sequences for batching
+                seq_len = self.max_len
+                input_ids = torch.randint(0, self.vocab_size, (1, seq_len))
+                attention_mask = torch.ones(1, seq_len)
                 return {
                     "input_ids": input_ids,
                     "attention_mask": attention_mask,
