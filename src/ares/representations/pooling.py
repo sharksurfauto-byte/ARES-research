@@ -65,6 +65,8 @@ def last_token_pool(
         # Use last position
         return hidden_state[:, -1, :]
 
+    # Ensure attention_mask is on same device as hidden_state
+    attention_mask = attention_mask.to(hidden_state.device)
     # Find last valid position for each batch
     lengths = attention_mask.sum(dim=1).long()  # [batch]
     batch_indices = torch.arange(hidden_state.size(0), device=hidden_state.device)
@@ -86,6 +88,8 @@ def mean_pool(
         [batch, hidden_dim] - mean of all tokens
     """
     if attention_mask is not None:
+        # Ensure attention_mask is on same device as hidden_state
+        attention_mask = attention_mask.to(hidden_state.device)
         # Mask out padding tokens
         mask_expanded = attention_mask.unsqueeze(-1).float()
         hidden_state = hidden_state * mask_expanded
@@ -110,6 +114,8 @@ def max_pool(
         [batch, hidden_dim] - max of all tokens
     """
     if attention_mask is not None:
+        # Ensure attention_mask is on same device as hidden_state
+        attention_mask = attention_mask.to(hidden_state.device)
         # Mask out padding tokens with very negative value
         mask_expanded = attention_mask.unsqueeze(-1).float()
         hidden_state = hidden_state.masked_fill(mask_expanded == 0, -1e9)
