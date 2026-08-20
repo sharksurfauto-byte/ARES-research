@@ -116,8 +116,8 @@ def main():
         # Create collector
         collector = RepresentationCollector(
             backbone=backbone,
-            layers=collector_cfg.default_layers if hasattr(collector_cfg, 'default_layers') else (-1, -6, -12, -24),
-            pooling_method=collector_cfg.default_pooling if hasattr(collector_cfg, 'default_pooling') else "mean",
+            layers=cfg.default_layers if hasattr(cfg, 'default_layers') else (-1, -6, -12, -24),
+            pooling_method=cfg.default_pooling if hasattr(cfg, 'default_pooling') else "mean",
             device=str(device),
         )
 
