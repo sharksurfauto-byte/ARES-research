@@ -189,7 +189,7 @@ def main():
             if save_dir.exists():
                 pt_file = list(save_dir.glob("*.pt"))
                 if pt_file:
-                    data = torch.load(pt_file[0])
+                    data = torch.load(pt_file[0], weights_only=False)
                     samples = data.get("samples", [])
                     logger.info(f"Analyzed {len(samples)} samples")
                     # Print sample info
