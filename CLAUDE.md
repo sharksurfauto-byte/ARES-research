@@ -10,7 +10,20 @@ Essential guidance for ARES Research. Detailed specs in ARES_RESEARCH_PRD.md.
 - `configs/backbone/` — qwen_0_5b, qwen_1_5b, qwen_7b_4bit
 - All 56 tests pass; `verify_backbone.py` verified on 2x T4
 
-**Week 2: IN PROGRESS** — Representation Collector, GRM/LRM, Calibration
+**Week 2: COMPLETED** (2026-08-24) — Representation Collector, GRM/LRM, Calibration, Self-Supervised Pretraining
+- `src/ares/representations/` — Multi-layer collector, pooling, dataset
+- `src/ares/grm/` — 2-layer transformer encoder (domain + feasibility + global reliability)
+  - `architecture.py`, `trainer.py`, `pretraining.py` — Self-supervised pretraining (contrastive + reconstruction)
+- `src/ares/lrm/` — 2-layer transformer (per-token correctness_prob + failure_risk)
+- `src/ares/calibration/` — Temperature scaling + isotonic regression
+- `scripts/collect_representations.py`, `scripts/train_reliability_models.py`, `scripts/pretrain_grm.py` — Pipeline verified
+- GRM trained: Loss 0.0008, Domain Acc 1.0000, Feasibility Acc 1.0000, Temp 1.4320
+- LRM trained: Temp 1.4304, ECE 0.0000 before/after calibration
+- Self-supervised pretraining: Contrastive (InfoNCE) + Reconstruction (MSE) losses implemented
+- Checkpoints at `checkpoints/reliability/grm.pt`, `checkpoints/reliability/lrm.pt`, `checkpoints/grm_pretrained/grm_pretrained.pt`
+- 84 tests pass
+
+**Week 3: NEXT** — Experts & Router
 
 ## Commands (use daily)
 

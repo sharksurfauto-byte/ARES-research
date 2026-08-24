@@ -1,10 +1,9 @@
 """Shared test fixtures for ARES."""
 
+
 import pytest
 import torch
-import tempfile
-from pathlib import Path
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import OmegaConf
 
 
 @pytest.fixture
@@ -54,18 +53,20 @@ def sample_batch():
 @pytest.fixture
 def mock_config():
     """Create a mock Hydra config."""
-    return OmegaConf.create({
-        "backbone": {
-            "name": "Qwen/Qwen2.5-0.5B",
-            "torch_dtype": "float32",
-            "device_map": "cpu",
-            "use_cache": False,
-            "attn_implementation": "eager",
-            "load_in_4bit": False,
-            "hidden_state_layers": [-1, -2],
-        },
-        "experiment": {
-            "seed": 42,
-            "output_dir": "outputs/test",
+    return OmegaConf.create(
+        {
+            "backbone": {
+                "name": "Qwen/Qwen2.5-0.5B",
+                "torch_dtype": "float32",
+                "device_map": "cpu",
+                "use_cache": False,
+                "attn_implementation": "eager",
+                "load_in_4bit": False,
+                "hidden_state_layers": [-1, -2],
+            },
+            "experiment": {
+                "seed": 42,
+                "output_dir": "outputs/test",
+            },
         }
-    })
+    )

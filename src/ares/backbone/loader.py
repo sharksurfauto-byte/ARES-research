@@ -1,16 +1,17 @@
 """Model loading utilities for ARES backbone."""
 
+import logging
+from typing import Any
+
 import torch
 from transformers import (
-    AutoModelForCausalLM,
     AutoConfig,
+    AutoModelForCausalLM,
     BitsAndBytesConfig,
 )
-from typing import Optional, Dict, Any
-import logging
 
+from .base import Backbone, QwenBackbone
 from .config import BackboneConfig
-from .base import QwenBackbone, Backbone
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +95,7 @@ def load_backbone(config: BackboneConfig) -> Backbone:
     return backbone
 
 
-def _build_model_kwargs(config: BackboneConfig) -> Dict[str, Any]:
+def _build_model_kwargs(config: BackboneConfig) -> dict[str, Any]:
     """Build kwargs for model loading based on config."""
     kwargs = {}
 
@@ -125,7 +126,9 @@ def _get_torch_dtype(dtype_str: str) -> torch.dtype:
     return dtype_map[dtype_lower]
 
 
-def verify_backbone(backbone: Backbone, test_input: Optional[torch.Tensor] = None) -> Dict[str, Any]:
+def verify_backbone(
+    backbone: Backbone, test_input: torch.Tensor | None = None
+) -> dict[str, Any]:
     """Verify backbone loads correctly and can run forward pass.
 
     Args:
@@ -165,9 +168,7 @@ def verify_backbone(backbone: Backbone, test_input: Optional[torch.Tensor] = Non
         # Check hidden states
         if hasattr(outputs, "hidden_states") and outputs.hidden_states is not None:
             results["hidden_states_extracted"] = True
-            results["hidden_states_shapes"] = [
-                list(h.shape) for h in outputs.hidden_states
-            ]
+            results["hidden_states_shapes"] = [list(h.shape) for h in outputs.hidden_states]
             logger.info(f"Hidden states extracted: {len(outputs.hidden_states)} layers")
             for i, h in enumerate(outputs.hidden_states):
                 logger.info(f"  Layer {i}: {h.shape}")

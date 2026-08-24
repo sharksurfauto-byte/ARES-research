@@ -4,19 +4,19 @@ Structured configs using Hydra/OmegaConf for type-safe configuration.
 """
 
 from .schema import (
+    ARESConfig,
     BackboneConfig,
-    DDPConfig,
-    WandbConfig,
+    CalibrationConfig,
     CheckpointConfig,
-    ExperimentConfig,
     DataConfig,
-    TrainingConfig,
+    DDPConfig,
+    ExperimentConfig,
+    ExpertConfig,
     GRMConfig,
     LRMConfig,
     RouterConfig,
-    ExpertConfig,
-    CalibrationConfig,
-    ARESConfig,
+    TrainingConfig,
+    WandbConfig,
 )
 
 __all__ = [

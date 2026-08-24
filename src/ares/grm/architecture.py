@@ -6,9 +6,9 @@ GRM takes pooled hidden representations and outputs:
 - global_reliability: scalar [0,1]
 """
 
+
 import torch
 import torch.nn as nn
-from typing import Tuple, Dict, Any
 
 
 class GRM(nn.Module):
@@ -77,7 +77,7 @@ class GRM(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Forward pass through GRM.
 
         Args:

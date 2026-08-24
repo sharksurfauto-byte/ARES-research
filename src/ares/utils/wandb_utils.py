@@ -3,16 +3,15 @@
 PRD §6 Week 1: W&B experiment tracking.
 """
 
-import os
 import logging
-from typing import Optional, Dict, Any, List
-from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 # Try to import wandb
 try:
     import wandb
+
     WANDB_AVAILABLE = True
 except ImportError:
     WANDB_AVAILABLE = False
@@ -25,14 +24,14 @@ class WandbLogger:
     def __init__(
         self,
         project: str = "ares-research",
-        entity: Optional[str] = None,
-        tags: Optional[List[str]] = None,
-        config: Optional[Dict[str, Any]] = None,
+        entity: str | None = None,
+        tags: list[str] | None = None,
+        config: dict[str, Any] | None = None,
         mode: str = "online",
-        dir: Optional[str] = None,
-        name: Optional[str] = None,
-        resume: Optional[str] = None,
-        id: Optional[str] = None,
+        dir: str | None = None,
+        name: str | None = None,
+        resume: str | None = None,
+        id: str | None = None,
     ):
         """Initialize W&B logger.
 
@@ -98,8 +97,8 @@ class WandbLogger:
 
     def log(
         self,
-        metrics: Dict[str, Any],
-        step: Optional[int] = None,
+        metrics: dict[str, Any],
+        step: int | None = None,
         commit: bool = True,
     ):
         """Log metrics to W&B.
@@ -122,7 +121,7 @@ class WandbLogger:
         path: str,
         name: str = "model",
         type: str = "model",
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ):
         """Log model artifact to W&B.
 
@@ -148,7 +147,7 @@ class WandbLogger:
         path: str,
         epoch: int,
         step: int,
-        metrics: Optional[Dict[str, float]] = None,
+        metrics: dict[str, float] | None = None,
     ):
         """Log checkpoint as artifact.
 
@@ -214,13 +213,13 @@ class WandbLogger:
 
 
 def init_wandb(
-    config: Dict[str, Any],
+    config: dict[str, Any],
     project: str = "ares-research",
-    entity: Optional[str] = None,
-    tags: Optional[List[str]] = None,
+    entity: str | None = None,
+    tags: list[str] | None = None,
     mode: str = "online",
-    dir: Optional[str] = None,
-    name: Optional[str] = None,
+    dir: str | None = None,
+    name: str | None = None,
 ) -> WandbLogger:
     """Initialize W&B with configuration.
 
@@ -253,7 +252,7 @@ def init_wandb(
     return logger
 
 
-def log_metrics(logger: WandbLogger, metrics: Dict[str, Any], step: Optional[int] = None):
+def log_metrics(logger: WandbLogger, metrics: dict[str, Any], step: int | None = None):
     """Log metrics using WandbLogger.
 
     Args:

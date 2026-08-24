@@ -1,24 +1,22 @@
 """Tests for representation collection and dataset."""
 
-import pytest
-import torch
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock
 
-import sys
+import torch
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from ares.representations import (
     RepresentationCollector,
-    CollectorConfig,
-    RepresentationSample,
     RepresentationDataset,
-    PoolMethod,
-    pool_hidden_state,
+    RepresentationSample,
     last_token_pool,
-    mean_pool,
     max_pool,
+    mean_pool,
+    pool_hidden_state,
 )
 
 

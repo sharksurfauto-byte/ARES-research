@@ -1,11 +1,11 @@
 """Tests for GRM architecture and trainer."""
 
-import pytest
-import torch
+import sys
 import tempfile
 from pathlib import Path
 
-import sys
+import torch
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from ares.grm import GRM, GRMTrainer
@@ -13,7 +13,9 @@ from ares.grm import GRM, GRMTrainer
 
 class TestGRMArchitecture:
     def test_grm_forward_2d(self, device):
-        model = GRM(input_dim=32, hidden_dim=64, num_layers=2, num_heads=4, domain_classes=5).to(device)
+        model = GRM(input_dim=32, hidden_dim=64, num_layers=2, num_heads=4, domain_classes=5).to(
+            device
+        )
         x = torch.randn(4, 32, device=device)  # 2D input [batch=4, input_dim=32]
         domain_logits, feasibility, global_rel = model(x)
 
@@ -22,7 +24,9 @@ class TestGRMArchitecture:
         assert global_rel.shape == (4, 1)
 
     def test_grm_forward_3d(self, device):
-        model = GRM(input_dim=32, hidden_dim=64, num_layers=2, num_heads=4, domain_classes=5).to(device)
+        model = GRM(input_dim=32, hidden_dim=64, num_layers=2, num_heads=4, domain_classes=5).to(
+            device
+        )
         x = torch.randn(4, 3, 32, device=device)  # 3D input [batch=4, seq=3, input_dim=32]
         domain_logits, feasibility, global_rel = model(x)
 

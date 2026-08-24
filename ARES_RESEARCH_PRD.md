@@ -281,13 +281,13 @@ After all training:
 - [x] Checkpoint system with SHA256 metadata
 - **Milestone**: Can load Qwen, run forward, extract hidden states, save checkpoints with verification — **VERIFIED ON KAGGLE**
 
-### Week 2: Representation & Reliability Probes
-- [ ] Multi-layer representation collector
-- [ ] GRM transformer architecture + training loop
-- [ ] LRM transformer architecture + training loop
-- [ ] Self-supervised pretraining on unlabeled data
-- [ ] Calibration module (temp scaling + isotonic)
-- **Milestone**: GRM and LRM can be trained on representation data; calibration works
+### Week 2: Representation & Reliability Probes ✅ COMPLETED (2026-08-24)
+- [x] Multi-layer representation collector
+- [x] GRM transformer architecture + training loop
+- [x] LRM transformer architecture + training loop
+- [x] Self-supervised pretraining on unlabeled data (contrastive + reconstruction)
+- [x] Calibration module (temp scaling + isotonic)
+- **Milestone**: GRM and LRM can be trained on representation data; calibration works; self-supervised pretraining functional - **VERIFIED ON KAGGLE**
 
 ### Week 3: Experts & Router
 - [ ] 4-5 LoRA experts with domain-specific data

@@ -3,8 +3,8 @@
 Provides model-agnostic backbone abstraction for frozen pretrained LLMs.
 """
 
-from .config import BackboneConfig
 from .base import Backbone, QwenBackbone
+from .config import BackboneConfig
 from .loader import load_backbone, verify_backbone
 
 __all__ = [

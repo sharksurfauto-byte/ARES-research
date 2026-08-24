@@ -16,23 +16,20 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Any
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import torch
-import numpy as np
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import OmegaConf
 
-from ares import (
-    RepresentationCollector, GRM, LRM,
-    GRMTrainer, LRMTrainer,
-    load_backbone
+from ares import GRM, LRM, GRMTrainer, LRMTrainer
+from ares.calibration import (
+    TemperatureScaling,
+    compute_ece,
+    fit_temperature_scaling,
 )
-from ares.utils.checkpoint import save_checkpoint, load_checkpoint
 from ares.utils.wandb_utils import init_wandb, log_metrics
-from ares.calibration import TemperatureScaling, fit_temperature_scaling, compute_ece, before_after_calibration
 
 
 def parse_args():
@@ -41,53 +38,35 @@ def parse_args():
         "--config",
         type=str,
         default="configs/reliability/reliability_models.yaml",
-        help="Path to reliability models config"
+        help="Path to reliability models config",
     )
     parser.add_argument(
         "--input_dir",
         type=str,
         default="representations",
-        help="Directory containing collected representations"
+        help="Directory containing collected representations",
     )
     parser.add_argument(
         "--output_dir",
         type=str,
         default="checkpoints/reliability",
-        help="Output directory for checkpoints"
+        help="Output directory for checkpoints",
     )
+    parser.add_argument("--epochs", type=int, default=10, help="Number of training epochs")
+    parser.add_argument("--batch_size", type=int, default=32, help="Training batch size")
+    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
     parser.add_argument(
-        "--epochs",
-        type=int,
-        default=10,
-        help="Number of training epochs"
-    )
-    parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=32,
-        help="Training batch size"
-    )
-    parser.add_argument(
-        "--lr",
-        type=float,
-        default=1e-4,
-        help="Learning rate"
-    )
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="auto",
-        help="Device to use (cuda, cpu, auto)"
+        "--device", type=str, default="auto", help="Device to use (cuda, cpu, auto)"
     )
     parser.add_argument(
         "--calibrate",
         action="store_true",
-        help="Apply temperature scaling + isotonic calibration after training"
+        help="Apply temperature scaling + isotonic calibration after training",
     )
     return parser.parse_args()
 
 
-def load_representations(input_dir: str) -> Dict[str, torch.Tensor]:
+def load_representations(input_dir: str) -> dict[str, torch.Tensor]:
     """Load representations from dataset directory.
 
     Args:
@@ -113,7 +92,11 @@ def load_representations(input_dir: str) -> Dict[str, torch.Tensor]:
 
     # Stack representations into tensor
     # Each representation is [hidden_dim], stack to [N, hidden_dim]
-    reps_tensor = (torch.stack(representations) if isinstance(representations[0], torch.Tensor) else torch.tensor(representations)).detach()
+    reps_tensor = (
+        torch.stack(representations)
+        if isinstance(representations[0], torch.Tensor)
+        else torch.tensor(representations)
+    ).detach()
 
     # Get number of layers from collector (typically 4: -1, -6, -12, -24)
     # Each sample produces N_layers representations
@@ -158,8 +141,12 @@ def load_representations(input_dir: str) -> Dict[str, torch.Tensor]:
     # Create domain labels - replicate per layer
     domain2idx = {"general": 0, "math": 1, "code": 2, "science": 3, "reasoning": 4}
     if samples:
-        train_domain = torch.tensor([domain2idx.get(samples[i].domain, 0) for i in train_sample_idx]).repeat_interleave(num_layers)
-        val_domain = torch.tensor([domain2idx.get(samples[i].domain, 0) for i in val_sample_idx]).repeat_interleave(num_layers)
+        train_domain = torch.tensor(
+            [domain2idx.get(samples[i].domain, 0) for i in train_sample_idx]
+        ).repeat_interleave(num_layers)
+        val_domain = torch.tensor(
+            [domain2idx.get(samples[i].domain, 0) for i in val_sample_idx]
+        ).repeat_interleave(num_layers)
     else:
         train_domain = torch.zeros(len(train_rep_idx), dtype=torch.long)
         val_domain = torch.zeros(len(val_rep_idx), dtype=torch.long)
@@ -231,12 +218,15 @@ def main():
         logger.info("Training Global Reliability Model (GRM)")
         logger.info("=" * 50)
 
-        grm = GRM(input_dim=input_dim, **{
-            "hidden_dim": config_dict.get("grm", {}).get("hidden_dim", 512),
-            "num_layers": config_dict.get("grm", {}).get("num_layers", 2),
-            "num_heads": config_dict.get("grm", {}).get("num_heads", 4),
-            "dropout": config_dict.get("grm", {}).get("dropout", 0.1),
-        }).to(device)
+        grm = GRM(
+            input_dim=input_dim,
+            **{
+                "hidden_dim": config_dict.get("grm", {}).get("hidden_dim", 512),
+                "num_layers": config_dict.get("grm", {}).get("num_layers", 2),
+                "num_heads": config_dict.get("grm", {}).get("num_heads", 4),
+                "dropout": config_dict.get("grm", {}).get("dropout", 0.1),
+            },
+        ).to(device)
 
         grm_trainer = GRMTrainer(
             model=grm,
@@ -249,11 +239,23 @@ def main():
         grm_history = grm_trainer.train(
             representations=data["train_representations"].to(device),
             domain_labels=data["train_domain_labels"].to(device),
-            feasibility_labels=data["train_feasibility_labels"].to(device) if data["train_feasibility_labels"] is not None else torch.ones(data["train_representations"].shape[0], device=device),
+            feasibility_labels=(
+                data["train_feasibility_labels"].to(device)
+                if data["train_feasibility_labels"] is not None
+                else torch.ones(data["train_representations"].shape[0], device=device)
+            ),
             epochs=args.epochs,
             val_representations=data["val_representations"].to(device),
-            val_domain_labels=data["val_domain_labels"].to(device) if data["val_domain_labels"] is not None else None,
-            val_feasibility_labels=data["val_feasibility_labels"].to(device) if data["val_feasibility_labels"] is not None else None,
+            val_domain_labels=(
+                data["val_domain_labels"].to(device)
+                if data["val_domain_labels"] is not None
+                else None
+            ),
+            val_feasibility_labels=(
+                data["val_feasibility_labels"].to(device)
+                if data["val_feasibility_labels"] is not None
+                else None
+            ),
         )
 
         # Save GRM checkpoint
@@ -269,7 +271,11 @@ def main():
             with torch.no_grad():
                 val_repr = data["val_representations"].to(device)
                 val_domain = data["val_domain_labels"].to(device)
-                val_feas = data["val_feasibility_labels"].to(device) if data["val_feasibility_labels"] is not None else torch.ones(val_repr.shape[0], device=device)
+                val_feas = (
+                    data["val_feasibility_labels"].to(device)
+                    if data["val_feasibility_labels"] is not None
+                    else torch.ones(val_repr.shape[0], device=device)
+                )
 
                 # Get domain logits
                 domain_logits, feasibility, global_rel = grm(val_repr)
@@ -289,24 +295,33 @@ def main():
         logger.info("=" * 50)
 
         # Initialize LRM
-        lrm = LRM(input_dim=input_dim, **{
-            "hidden_dim": config_dict.get("lrm", {}).get("hidden_dim", 512),
-            "num_layers": config_dict.get("lrm", {}).get("num_layers", 2),
-            "num_heads": config_dict.get("lrm", {}).get("num_heads", 4),
-            "dropout": config_dict.get("lrm", {}).get("dropout", 0.1),
-        }).to(device)
+        lrm = LRM(
+            input_dim=input_dim,
+            **{
+                "hidden_dim": config_dict.get("lrm", {}).get("hidden_dim", 512),
+                "num_layers": config_dict.get("lrm", {}).get("num_layers", 2),
+                "num_heads": config_dict.get("lrm", {}).get("num_heads", 4),
+                "dropout": config_dict.get("lrm", {}).get("dropout", 0.1),
+            },
+        ).to(device)
 
         # For LRM, we need token-level data. Create simple token-level dataset
         # from the collected representations
         train_hidden = data["train_representations"].to(device)
-        train_labels = data["train_feasibility_labels"].to(device) if data["train_feasibility_labels"] is not None else torch.ones(train_hidden.shape[0], device=device)
+        train_labels = (
+            data["train_feasibility_labels"].to(device)
+            if data["train_feasibility_labels"] is not None
+            else torch.ones(train_hidden.shape[0], device=device)
+        )
 
         # Repeat representations for token-level (simulate per-token hidden states)
         # In practice, these would come from the actual backbone hidden states
         seq_len = 32  # Assume fixed sequence length
 
         # Tile hidden states to simulate sequence dimension
-        train_hidden_tiled = train_hidden.unsqueeze(1).expand(-1, seq_len, -1).reshape(-1, input_dim)
+        train_hidden_tiled = (
+            train_hidden.unsqueeze(1).expand(-1, seq_len, -1).reshape(-1, input_dim)
+        )
         train_labels_tiled = train_labels.unsqueeze(1).expand(-1, seq_len).reshape(-1).float()
 
         # Create attention mask matching tiled tensor size
@@ -358,7 +373,11 @@ def main():
                     logger.info(f"LRM temperature: {temp_fit['temperature']:.4f}")
 
                     # Apply isotonic regression
-                    from ares.calibration.isotonic import fit_isotonic_regression, apply_isotonic_regression
+                    from ares.calibration.isotonic import (
+                        apply_isotonic_regression,
+                        fit_isotonic_regression,
+                    )
+
                     ir_model = fit_isotonic_regression(valid_probs, valid_labels)
                     calibrated_probs = apply_isotonic_regression(valid_probs, ir_model)
 
@@ -375,21 +394,25 @@ def main():
 
         # Log final metrics to W&B
         if wandb_logger is not None:
-            log_metrics(wandb_logger, {
-                "grm/final_train_loss": grm_history["train"][-1]["loss"],
-                "grm/final_train_acc": grm_history["train"][-1]["domain_accuracy"],
-                "lrm/final_train_loss": lrm_history["train"][-1]["loss"],
-                "lrm/final_train_acc": lrm_history["train"][-1]["accuracy"],
-            })
+            log_metrics(
+                wandb_logger,
+                {
+                    "grm/final_train_loss": grm_history["train"][-1]["loss"],
+                    "grm/final_train_acc": grm_history["train"][-1]["domain_accuracy"],
+                    "lrm/final_train_loss": lrm_history["train"][-1]["loss"],
+                    "lrm/final_train_acc": lrm_history["train"][-1]["accuracy"],
+                },
+            )
 
         logger.info("Reliability models training complete!")
         print(f"Checkpoints saved to {args.output_dir}/")
-        print(f"  - grm.pt (Global Reliability Model)")
-        print(f"  - lrm.pt (Local Reliability Model)")
+        print("  - grm.pt (Global Reliability Model)")
+        print("  - lrm.pt (Local Reliability Model)")
 
     except Exception as e:
         logger.error(f"Reliability models training failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

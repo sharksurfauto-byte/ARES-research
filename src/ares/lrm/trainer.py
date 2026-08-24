@@ -3,14 +3,13 @@
 Implements token-wise correctness prediction training.
 """
 
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader
-from typing import Dict, Any, Optional, List
+from typing import Any
 
+import torch
+
+from ..utils.checkpoint import load_checkpoint, save_checkpoint
+from ..utils.wandb_utils import log_metrics
 from .architecture import LRM
-from ..utils.checkpoint import save_checkpoint, load_checkpoint
-from ..utils.wandb_utils import init_wandb, log_metrics
 
 
 class LRMTrainer:
@@ -26,8 +25,8 @@ class LRMTrainer:
         self,
         model: LRM,
         device: torch.device,
-        config: Optional[Dict[str, Any]] = None,
-        wandb_logger: Optional[Any] = None,
+        config: dict[str, Any] | None = None,
+        wandb_logger: Any | None = None,
     ):
         """Initialize LRM trainer.
 
@@ -67,8 +66,8 @@ class LRMTrainer:
         self,
         token_hidden_states: torch.Tensor,
         correctness_labels: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-    ) -> Dict[str, float]:
+        attention_mask: torch.Tensor | None = None,
+    ) -> dict[str, float]:
         """Train one epoch.
 
         Args:
@@ -104,9 +103,13 @@ class LRMTrainer:
                 flat_mask = torch.ones_like(flat_labels)
 
         if flat_labels.size(0) != flat_size:
-            raise ValueError(f"correctness_labels size ({flat_labels.size(0)}) does not match token_hidden_states size ({flat_size})")
+            raise ValueError(
+                f"correctness_labels size ({flat_labels.size(0)}) does not match token_hidden_states size ({flat_size})"
+            )
         if flat_mask.size(0) != flat_size:
-            raise ValueError(f"attention_mask size ({flat_mask.size(0)}) does not match token_hidden_states size ({flat_size})")
+            raise ValueError(
+                f"attention_mask size ({flat_mask.size(0)}) does not match token_hidden_states size ({flat_size})"
+            )
 
         permutation = torch.randperm(flat_size)
         batch_size = self.config.get("batch_size", 32)
@@ -122,12 +125,17 @@ class LRMTrainer:
             self.optimizer.zero_grad()
 
             correctness_prob, failure_risk = self.model(batch_hidden)
-            prob_flat = correctness_prob.squeeze(-1) if correctness_prob.dim() > 1 else correctness_prob
+            prob_flat = (
+                correctness_prob.squeeze(-1) if correctness_prob.dim() > 1 else correctness_prob
+            )
 
             eps = 1e-7
             prob_clamped = prob_flat.clamp(min=eps, max=1.0 - eps)
             weight = torch.where(batch_labels == 1.0, self.pos_weight, 1.0)
-            element_loss = -weight * (batch_labels * torch.log(prob_clamped) + (1.0 - batch_labels) * torch.log(1.0 - prob_clamped))
+            element_loss = -weight * (
+                batch_labels * torch.log(prob_clamped)
+                + (1.0 - batch_labels) * torch.log(1.0 - prob_clamped)
+            )
             masked_loss = element_loss * batch_mask
             valid_count = batch_mask.sum()
 
@@ -158,12 +166,12 @@ class LRMTrainer:
         self,
         token_hidden_states: torch.Tensor,
         correctness_labels: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
+        attention_mask: torch.Tensor | None = None,
         epochs: int = 10,
-        val_hidden_states: Optional[torch.Tensor] = None,
-        val_labels: Optional[torch.Tensor] = None,
-        val_mask: Optional[torch.Tensor] = None,
-    ) -> Dict[str, List[float]]:
+        val_hidden_states: torch.Tensor | None = None,
+        val_labels: torch.Tensor | None = None,
+        val_mask: torch.Tensor | None = None,
+    ) -> dict[str, list[float]]:
         """Full training loop.
 
         Args:
@@ -214,8 +222,8 @@ class LRMTrainer:
         self,
         val_hidden_states: torch.Tensor,
         val_labels: torch.Tensor,
-        val_mask: Optional[torch.Tensor] = None,
-    ) -> Dict[str, float]:
+        val_mask: torch.Tensor | None = None,
+    ) -> dict[str, float]:
         """Validation pass."""
         self.model.eval()
         accumulated_loss = 0.0
@@ -250,12 +258,17 @@ class LRMTrainer:
                 batch_mask = flat_mask[batch_indices].to(self.device)
 
                 correctness_prob, failure_risk = self.model(batch_hidden)
-                prob_flat = correctness_prob.squeeze(-1) if correctness_prob.dim() > 1 else correctness_prob
+                prob_flat = (
+                    correctness_prob.squeeze(-1) if correctness_prob.dim() > 1 else correctness_prob
+                )
 
                 eps = 1e-7
                 prob_clamped = prob_flat.clamp(min=eps, max=1.0 - eps)
                 weight = torch.where(batch_labels == 1.0, self.pos_weight, 1.0)
-                element_loss = -weight * (batch_labels * torch.log(prob_clamped) + (1.0 - batch_labels) * torch.log(1.0 - prob_clamped))
+                element_loss = -weight * (
+                    batch_labels * torch.log(prob_clamped)
+                    + (1.0 - batch_labels) * torch.log(1.0 - prob_clamped)
+                )
                 masked_loss = element_loss * batch_mask
                 valid_count = batch_mask.sum()
 
@@ -271,7 +284,7 @@ class LRMTrainer:
             "val_accuracy": total_correct / total_tokens if total_tokens > 0 else 0.0,
         }
 
-    def save(self, path: str, config: Optional[Dict[str, Any]] = None):
+    def save(self, path: str, config: dict[str, Any] | None = None):
         """Save model checkpoint.
 
         Args:
@@ -291,8 +304,8 @@ class LRMTrainer:
         model: LRM,
         path: str,
         device: torch.device,
-        config: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Load model checkpoint.
 
         Args:

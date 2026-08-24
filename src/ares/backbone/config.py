@@ -1,7 +1,7 @@
 """Backbone configuration dataclass for ARES."""
 
-from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
+from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -10,6 +10,7 @@ class BackboneConfig:
 
     Based on PRD §7.3 model configuration.
     """
+
     # Model identification
     name: str = "Qwen/Qwen2.5-0.5B"
     revision: str = "main"
@@ -19,7 +20,7 @@ class BackboneConfig:
     device_map: str = "auto"
 
     # Critical flags (PRD §7.4)
-    use_cache: bool = False          # Critical for dynamic expert switching
+    use_cache: bool = False  # Critical for dynamic expert switching
     attn_implementation: str = "eager"  # Required for output_attentions=True
 
     # 4-bit quantization (bitsandbytes NF4)
@@ -30,7 +31,7 @@ class BackboneConfig:
 
     # LoRA/PEFT (for expert adapters in later weeks)
     use_peft: bool = False
-    peft_config: Optional[Dict[str, Any]] = None
+    peft_config: dict[str, Any] | None = None
 
     # Gradient checkpointing for memory efficiency
     gradient_checkpointing: bool = True
@@ -46,9 +47,11 @@ class BackboneConfig:
 
         valid_attn = {"eager", "sdpa", "flash_attention_2"}
         if self.attn_implementation not in valid_attn:
-            raise ValueError(f"attn_implementation must be one of {valid_attn}, got {self.attn_implementation}")
+            raise ValueError(
+                f"attn_implementation must be one of {valid_attn}, got {self.attn_implementation}"
+            )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "name": self.name,
@@ -68,7 +71,7 @@ class BackboneConfig:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "BackboneConfig":
+    def from_dict(cls, data: dict[str, Any]) -> "BackboneConfig":
         """Create from dictionary."""
         # Handle hidden_state_layers conversion from list to tuple
         if "hidden_state_layers" in data and isinstance(data["hidden_state_layers"], list):

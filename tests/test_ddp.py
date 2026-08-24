@@ -1,29 +1,29 @@
 """Tests for DDP utilities."""
 
-import pytest
 import os
-import torch
-from unittest.mock import Mock, patch, MagicMock
-from pathlib import Path
 
 # Add src to path
 import sys
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+import torch
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from ares.utils.ddp import (
-    is_distributed,
-    get_rank,
-    get_world_size,
-    is_main_process,
-    init_ddp,
-    cleanup_ddp,
-    wrap_model_ddp,
-    reduce_dict,
+    DDPContext,
     all_gather_object,
     broadcast_object,
-    synchronize,
     get_device,
-    DDPContext,
+    get_rank,
+    get_world_size,
+    init_ddp,
+    is_distributed,
+    is_main_process,
+    reduce_dict,
+    synchronize,
+    wrap_model_ddp,
 )
 
 
@@ -93,7 +93,9 @@ class TestWrapModelDDP:
     @patch("ares.utils.ddp.get_rank", return_value=0)
     @patch("ares.utils.ddp.get_world_size", return_value=2)
     @patch("ares.utils.ddp.DDP")
-    def test_wrap_model_ddp_distributed(self, mock_ddp_class, mock_world_size, mock_rank, mock_is_dist):
+    def test_wrap_model_ddp_distributed(
+        self, mock_ddp_class, mock_world_size, mock_rank, mock_is_dist
+    ):
         """Test wrap_model_ddp when distributed."""
         # Mock the DDP constructor to avoid process group requirement
         mock_ddp_instance = Mock()

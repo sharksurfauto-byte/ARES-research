@@ -4,8 +4,8 @@ Non-parametric calibration method that fits a monotonic function
 to map predicted probabilities to observed frequencies.
 """
 
+
 import numpy as np
-from typing import Dict, Any, Optional
 from sklearn.isotonic import IsotonicRegression
 
 
@@ -99,7 +99,7 @@ def before_after_calibration(
     calibrated_scores: np.ndarray,
     labels: np.ndarray,
     n_bins: int = 10,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Compute ECE before and after calibration.
 
     Args:

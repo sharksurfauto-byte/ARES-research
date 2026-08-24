@@ -5,7 +5,8 @@ enabling model-agnostic design (PRD §7.4 #6, §8.2 #1).
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Any
+
 import torch
 from torch import nn
 
@@ -21,10 +22,10 @@ class Backbone(ABC):
     def forward(
         self,
         input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
+        attention_mask: torch.Tensor | None = None,
         output_hidden_states: bool = True,
         output_attentions: bool = True,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Forward pass through the backbone.
 
@@ -40,10 +41,7 @@ class Backbone(ABC):
         pass
 
     @abstractmethod
-    def get_hidden_states(
-        self,
-        layer_indices: List[int]
-    ) -> List[torch.Tensor]:
+    def get_hidden_states(self, layer_indices: list[int]) -> list[torch.Tensor]:
         """Extract hidden states from specified layers.
 
         Args:
@@ -55,7 +53,7 @@ class Backbone(ABC):
         pass
 
     @abstractmethod
-    def get_model_config(self) -> Dict[str, Any]:
+    def get_model_config(self) -> dict[str, Any]:
         """Get the model's configuration as a dictionary.
 
         Returns:
@@ -102,8 +100,8 @@ class QwenBackbone(Backbone):
     def __init__(
         self,
         model: nn.Module,
-        config: Dict[str, Any],
-        hidden_state_layers: Tuple[int, ...] = (-1, -6, -12, -24)
+        config: dict[str, Any],
+        hidden_state_layers: tuple[int, ...] = (-1, -6, -12, -24),
     ):
         """Initialize the Qwen backbone wrapper.
 
@@ -130,10 +128,10 @@ class QwenBackbone(Backbone):
     def forward(
         self,
         input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
+        attention_mask: torch.Tensor | None = None,
         output_hidden_states: bool = True,
         output_attentions: bool = True,
-        **kwargs
+        **kwargs,
     ) -> Any:
         """Forward pass with hidden states and attentions."""
         return self._model(
@@ -142,10 +140,10 @@ class QwenBackbone(Backbone):
             output_hidden_states=output_hidden_states,
             output_attentions=output_attentions,
             use_cache=False,  # Critical for dynamic expert switching
-            **kwargs
+            **kwargs,
         )
 
-    def get_hidden_states(self, layer_indices: List[int]) -> List[torch.Tensor]:
+    def get_hidden_states(self, layer_indices: list[int]) -> list[torch.Tensor]:
         """Extract hidden states from specified layers.
 
         Note: This requires a forward pass with output_hidden_states=True first.
@@ -158,7 +156,7 @@ class QwenBackbone(Backbone):
             "which handles the forward pass and extraction"
         )
 
-    def get_model_config(self) -> Dict[str, Any]:
+    def get_model_config(self) -> dict[str, Any]:
         """Return model configuration."""
         return {
             "hidden_size": self.hidden_size,

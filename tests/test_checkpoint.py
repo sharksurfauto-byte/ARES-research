@@ -1,29 +1,31 @@
 """Tests for checkpoint system."""
 
-import pytest
-import torch
-import torch.nn as nn
-from pathlib import Path
-import tempfile
 import hashlib
 
 # Add src to path
 import sys
+from pathlib import Path
+
+import pytest
+import torch
+import torch.nn as nn
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from ares.utils.checkpoint import (
+    CheckpointManager,
     compute_sha256,
     compute_state_dict_sha256,
-    save_checkpoint,
-    load_checkpoint,
-    verify_checkpoint,
     find_latest_checkpoint,
-    CheckpointManager,
+    load_checkpoint,
+    save_checkpoint,
+    verify_checkpoint,
 )
 
 
 class SimpleModel(nn.Module):
     """Simple model for testing."""
+
     def __init__(self):
         super().__init__()
         self.linear = nn.Linear(10, 5)
@@ -288,7 +290,7 @@ class TestCheckpointManager:
 
         # Save 3 checkpoints
         for i in range(3):
-            manager.save(model=model, epoch=i, step=i*10)
+            manager.save(model=model, epoch=i, step=i * 10)
 
         # Only 2 should remain
         checkpoints = list(tmp_path.glob("checkpoint_*.pt"))

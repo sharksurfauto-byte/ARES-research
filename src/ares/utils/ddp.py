@@ -3,13 +3,14 @@
 Supports 2x T4 Kaggle setup (PRD §7.1, §7.4 #5).
 """
 
+import logging
 import os
+from datetime import timedelta
+from typing import Any
+
 import torch
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
-from typing import Optional, Dict, Any, List
-from datetime import timedelta
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -97,8 +98,8 @@ def cleanup_ddp():
 
 def wrap_model_ddp(
     model: torch.nn.Module,
-    device_ids: Optional[List[int]] = None,
-    output_device: Optional[int] = None,
+    device_ids: list[int] | None = None,
+    output_device: int | None = None,
     find_unused_parameters: bool = False,
     broadcast_buffers: bool = False,
 ) -> torch.nn.Module:
@@ -138,9 +139,9 @@ def wrap_model_ddp(
 
 
 def reduce_dict(
-    dictionary: Dict[str, torch.Tensor],
+    dictionary: dict[str, torch.Tensor],
     average: bool = True,
-) -> Dict[str, torch.Tensor]:
+) -> dict[str, torch.Tensor]:
     """Reduce dictionary of tensors across all processes.
 
     Args:
@@ -175,7 +176,7 @@ def reduce_dict(
     return reduced
 
 
-def all_gather_object(obj: Any) -> List[Any]:
+def all_gather_object(obj: Any) -> list[Any]:
     """Gather arbitrary Python objects from all processes.
 
     Args:
@@ -249,6 +250,6 @@ class DDPContext:
         """Wrap model with DDP."""
         return wrap_model_ddp(model, **kwargs)
 
-    def reduce(self, dictionary: Dict[str, torch.Tensor], **kwargs) -> Dict[str, torch.Tensor]:
+    def reduce(self, dictionary: dict[str, torch.Tensor], **kwargs) -> dict[str, torch.Tensor]:
         """Reduce dictionary across processes."""
         return reduce_dict(dictionary, **kwargs)

@@ -1,0 +1,48 @@
+# GRM Self-Supervised Pretraining Configuration
+# PRD §4.2: Self-supervised phase on unlabeled data
+
+defaults:
+  - backbone: qwen_0_5b
+  - _self_
+
+# Pretraining hyperparameters
+pretraining:
+  # Contrastive learning (InfoNCE)
+  contrastive:
+    temperature: 0.07      # Temperature parameter for contrastive loss
+    loss_weight: 1.0       # Weight for contrastive loss component
+
+  # Reconstruction loss (autoencoder-style)
+  reconstruction:
+    loss_weight: 0.5       # Weight for reconstruction loss component
+    hidden_dim: 512        # Hidden dim for reconstruction encoder/decoder
+
+  # Training configuration
+  training:
+    learning_rate: 5e-5    # Lower LR for pretraining
+    batch_size: 16         # Samples per batch (each sample has 4 layer representations)
+    epochs: 5              # Pretraining epochs
+    warmup_steps: 100      # LR warmup steps
+    weight_decay: 1e-4
+    lr_step_size: 10
+    lr_gamma: 0.5
+
+# Data configuration
+data:
+  # Unlabeled dataset for pretraining
+  unlabeled_dataset: "wikitext"  # Options: wikitext, common_crawl, synthetic
+  dataset_split: "train"
+  max_samples: 5000        # Number of samples to collect for pretraining
+  max_length: 2048         # Max sequence length
+
+# Output configuration
+output:
+  checkpoint_dir: "checkpoints/grm_pretrained"
+  save_every_n_epochs: 1
+  keep_last_n: 3
+
+# Wandb
+wandb:
+  project: "ares-research"
+  run_name: "grm_self_supervised"
+  tags: ["pretraining", "grm", "contrastive", "reconstruction"]

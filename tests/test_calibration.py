@@ -1,21 +1,21 @@
 """Tests for calibration module."""
 
-import pytest
-import torch
-import numpy as np
-
 import sys
 from pathlib import Path
+
+import numpy as np
+import torch
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from ares.calibration import (
     TemperatureScaling,
-    fit_temperature_scaling,
-    fit_isotonic_regression,
     apply_isotonic_regression,
-    compute_ece,
-    compute_brier_score,
     before_after_calibration,
+    compute_brier_score,
+    compute_ece,
+    fit_isotonic_regression,
+    fit_temperature_scaling,
 )
 
 

@@ -4,14 +4,15 @@ Multiple pooling methods to reduce hidden states from [batch, seq_len, hidden_di
 to single vectors of dimension hidden_dim.
 """
 
-import torch
-import torch.nn.functional as F
 from enum import Enum
-from typing import Literal, Optional
+from typing import Literal
+
+import torch
 
 
 class PoolMethod(Enum):
     """Pooling methods for representation extraction."""
+
     LAST_TOKEN = "last_token"
     MEAN = "mean"
     MAX = "max"
@@ -24,7 +25,7 @@ PoolMethodType = Literal["last_token", "mean", "max", "cls"]
 def pool_hidden_state(
     hidden_state: torch.Tensor,
     method: PoolMethodType = "mean",
-    attention_mask: Optional[torch.Tensor] = None,
+    attention_mask: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Pool a hidden state tensor to a single vector.
 
@@ -50,7 +51,7 @@ def pool_hidden_state(
 
 def last_token_pool(
     hidden_state: torch.Tensor,
-    attention_mask: Optional[torch.Tensor] = None,
+    attention_mask: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Pool by taking the last valid token.
 
@@ -76,7 +77,7 @@ def last_token_pool(
 
 def mean_pool(
     hidden_state: torch.Tensor,
-    attention_mask: Optional[torch.Tensor] = None,
+    attention_mask: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Mean pool over sequence dimension.
 
@@ -102,7 +103,7 @@ def mean_pool(
 
 def max_pool(
     hidden_state: torch.Tensor,
-    attention_mask: Optional[torch.Tensor] = None,
+    attention_mask: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Max pool over sequence dimension.
 
@@ -138,7 +139,7 @@ def cls_pool(hidden_state: torch.Tensor) -> torch.Tensor:
 def concatenate_layers(
     layer_outputs: list,
     pooling_method: PoolMethodType = "mean",
-    attention_mask: Optional[torch.Tensor] = None,
+    attention_mask: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Concatenate representations from multiple layers.
 
@@ -160,7 +161,7 @@ def concatenate_layers(
 def aggregate_layers(
     layer_outputs: list,
     pooling_method: PoolMethodType = "mean",
-    attention_mask: Optional[torch.Tensor] = None,
+    attention_mask: torch.Tensor | None = None,
     aggregation: Literal["concat", "mean", "max", "weighted"] = "concat",
 ) -> torch.Tensor:
     """Aggregate representations from multiple layers.

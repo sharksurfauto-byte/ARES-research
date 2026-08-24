@@ -6,9 +6,9 @@ LRM takes per-token hidden states and outputs:
 - Token-level reliability scores
 """
 
+
 import torch
 import torch.nn as nn
-from typing import Tuple, Dict, Any
 
 
 class LRM(nn.Module):
@@ -72,7 +72,7 @@ class LRM(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """Forward pass through LRM.
 
         Args:
@@ -83,7 +83,7 @@ class LRM(nn.Module):
             - correctness_prob: [batch, seq_len] — P(correct|H_token)
             - failure_risk: [batch, seq_len] — 1 - correctness_prob
         """
-        is_2d = (x.dim() == 2)
+        is_2d = x.dim() == 2
         if is_2d:
             x_seq = x.unsqueeze(1)
         else:

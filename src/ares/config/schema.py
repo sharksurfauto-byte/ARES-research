@@ -4,7 +4,7 @@ Provides type-safe configuration schemas for all components.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional, List
+
 from omegaconf import MISSING
 
 from ares.backbone.config import BackboneConfig
@@ -13,6 +13,7 @@ from ares.backbone.config import BackboneConfig
 @dataclass
 class DDPConfig:
     """Distributed Data Parallel configuration."""
+
     backend: str = "nccl"
     find_unused_parameters: bool = False
     timeout_minutes: int = 30
@@ -21,16 +22,18 @@ class DDPConfig:
 @dataclass
 class WandbConfig:
     """Weights & Biases configuration."""
+
     project: str = "ares-research"
-    entity: Optional[str] = None
-    tags: List[str] = field(default_factory=list)
+    entity: str | None = None
+    tags: list[str] = field(default_factory=list)
     mode: str = "online"  # online, offline, disabled
-    dir: Optional[str] = None
+    dir: str | None = None
 
 
 @dataclass
 class CheckpointConfig:
     """Checkpoint system configuration."""
+
     save_dir: str = "checkpoints"
     save_every_n_steps: int = 1000
     save_every_n_epochs: int = 1
@@ -41,6 +44,7 @@ class CheckpointConfig:
 @dataclass
 class ExperimentConfig:
     """Base experiment configuration."""
+
     seed: int = 42
     output_dir: str = "outputs"
     experiment_name: str = "default"
@@ -53,9 +57,10 @@ class ExperimentConfig:
 @dataclass
 class DataConfig:
     """Data loading configuration."""
+
     dataset_name: str = MISSING
     dataset_split: str = "train"
-    max_samples: Optional[int] = None
+    max_samples: int | None = None
     batch_size: int = 4
     num_workers: int = 4
     max_length: int = 2048
@@ -64,6 +69,7 @@ class DataConfig:
 @dataclass
 class TrainingConfig:
     """Training configuration."""
+
     num_epochs: int = 10
     learning_rate: float = 1e-4
     weight_decay: float = 0.01
@@ -77,6 +83,7 @@ class TrainingConfig:
 @dataclass
 class GRMConfig:
     """Global Reliability Model configuration (PRD §3.2.3)."""
+
     hidden_dim: int = 512
     num_layers: int = 2
     num_heads: int = 4
@@ -87,6 +94,7 @@ class GRMConfig:
 @dataclass
 class LRMConfig:
     """Local Reliability Model configuration (PRD §3.2.4)."""
+
     hidden_dim: int = 512
     num_layers: int = 2
     num_heads: int = 4
@@ -96,6 +104,7 @@ class LRMConfig:
 @dataclass
 class RouterConfig:
     """Router Network configuration (PRD §3.2.5)."""
+
     hidden_dim: int = 256
     num_layers: int = 2
     num_experts: int = 5
@@ -105,16 +114,22 @@ class RouterConfig:
 @dataclass
 class ExpertConfig:
     """LoRA Expert configuration (PRD §3.2.6)."""
+
     r: int = 16
     lora_alpha: int = 32
     lora_dropout: float = 0.05
-    target_modules: List[str] = field(default_factory=lambda: ["q_proj", "k_proj", "v_proj", "o_proj"])
-    expert_names: List[str] = field(default_factory=lambda: ["general", "math", "code", "science", "reasoning"])
+    target_modules: list[str] = field(
+        default_factory=lambda: ["q_proj", "k_proj", "v_proj", "o_proj"]
+    )
+    expert_names: list[str] = field(
+        default_factory=lambda: ["general", "math", "code", "science", "reasoning"]
+    )
 
 
 @dataclass
 class CalibrationConfig:
     """Calibration configuration (PRD §4.6)."""
+
     temperature_scaling: bool = True
     isotonic_regression: bool = True
     num_bins: int = 10
@@ -124,6 +139,7 @@ class CalibrationConfig:
 @dataclass
 class ARESConfig:
     """Complete ARES configuration."""
+
     experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
     grm: GRMConfig = field(default_factory=GRMConfig)

@@ -14,8 +14,8 @@ import logging
 import sys
 from pathlib import Path
 
-import torch
 import hydra
+import torch
 from omegaconf import DictConfig, OmegaConf
 
 # Add src to path for imports
@@ -23,20 +23,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from ares import (
     BackboneConfig,
-    load_backbone,
-    verify_backbone,
-    save_checkpoint,
-    load_checkpoint,
-    verify_checkpoint,
-    init_ddp,
     cleanup_ddp,
-    is_distributed,
+    init_ddp,
     is_main_process,
+    load_backbone,
+    load_checkpoint,
+    save_checkpoint,
+    verify_backbone,
+    verify_checkpoint,
 )
 
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -47,43 +45,18 @@ def parse_args():
         "--config",
         type=str,
         default="configs/backbone/qwen_0_5b.yaml",
-        help="Path to Hydra config file"
+        help="Path to Hydra config file",
     )
+    parser.add_argument("--model", type=str, default=None, help="Model name (overrides config)")
     parser.add_argument(
-        "--model",
-        type=str,
-        default=None,
-        help="Model name (overrides config)"
+        "--device", type=str, default="auto", help="Device to use (cuda, cpu, auto)"
     )
+    parser.add_argument("--seq-length", type=int, default=32, help="Test sequence length")
+    parser.add_argument("--batch-size", type=int, default=1, help="Test batch size")
     parser.add_argument(
-        "--device",
-        type=str,
-        default="auto",
-        help="Device to use (cuda, cpu, auto)"
+        "--checkpoint-dir", type=str, default="checkpoints/backbone", help="Checkpoint directory"
     )
-    parser.add_argument(
-        "--seq-length",
-        type=int,
-        default=32,
-        help="Test sequence length"
-    )
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=1,
-        help="Test batch size"
-    )
-    parser.add_argument(
-        "--checkpoint-dir",
-        type=str,
-        default="checkpoints/backbone",
-        help="Checkpoint directory"
-    )
-    parser.add_argument(
-        "--no-ddp",
-        action="store_true",
-        help="Skip DDP initialization"
-    )
+    parser.add_argument("--no-ddp", action="store_true", help="Skip DDP initialization")
     return parser.parse_args()
 
 
@@ -91,15 +64,14 @@ def load_config(config_path: str) -> DictConfig:
     """Load Hydra config."""
     # Initialize hydra with config path (must be absolute)
     config_dir = Path(config_path).parent.resolve()
-    hydra.initialize_config_dir(
-        config_dir=str(config_dir),
-        version_base=None
-    )
+    hydra.initialize_config_dir(config_dir=str(config_dir), version_base=None)
     cfg = hydra.compose(config_name=Path(config_path).stem)
     return cfg
 
 
-def create_test_input(batch_size: int, seq_length: int, vocab_size: int, device: torch.device) -> torch.Tensor:
+def create_test_input(
+    batch_size: int, seq_length: int, vocab_size: int, device: torch.device
+) -> torch.Tensor:
     """Create dummy input tensor."""
     return torch.randint(0, vocab_size, (batch_size, seq_length), device=device)
 
@@ -145,10 +117,7 @@ def main():
         logger.info("Running backbone verification...")
         device = backbone.get_device()
         test_input = create_test_input(
-            args.batch_size,
-            args.seq_length,
-            backbone.vocab_size,
-            device
+            args.batch_size, args.seq_length, backbone.vocab_size, device
         )
 
         results = verify_backbone(backbone, test_input)
@@ -161,19 +130,23 @@ def main():
         logger.info(f"Forward pass: {results['forward_pass']}")
         logger.info(f"Logits shape: {results['logits_shape']}")
         logger.info(f"Hidden states extracted: {results['hidden_states_extracted']}")
-        if results['hidden_states_shapes']:
+        if results["hidden_states_shapes"]:
             logger.info(f"Hidden states shapes: {results['hidden_states_shapes']}")
         logger.info(f"Errors: {results['errors']}")
         logger.info("=" * 50)
 
         # Check expected shapes
         expected_hidden_layers = len(backbone_config.hidden_state_layers) + 1  # +1 for embeddings
-        if results['hidden_states_shapes']:
-            actual_layers = len(results['hidden_states_shapes'])
+        if results["hidden_states_shapes"]:
+            actual_layers = len(results["hidden_states_shapes"])
             if actual_layers >= expected_hidden_layers:
-                logger.info(f"✓ Hidden states: {actual_layers} layers (expected >= {expected_hidden_layers})")
+                logger.info(
+                    f"✓ Hidden states: {actual_layers} layers (expected >= {expected_hidden_layers})"
+                )
             else:
-                logger.warning(f"✗ Hidden states: {actual_layers} layers (expected >= {expected_hidden_layers})")
+                logger.warning(
+                    f"✗ Hidden states: {actual_layers} layers (expected >= {expected_hidden_layers})"
+                )
 
         # Test checkpoint save/load
         logger.info("Testing checkpoint save/load...")
@@ -183,7 +156,7 @@ def main():
 
         # Save checkpoint
         save_checkpoint(
-            model=backbone._model if hasattr(backbone, '_model') else backbone,
+            model=backbone._model if hasattr(backbone, "_model") else backbone,
             epoch=0,
             step=1,
             metrics={"verification": "test"},
@@ -201,7 +174,7 @@ def main():
         backbone2 = load_backbone(backbone_config)
         load_checkpoint(
             path=checkpoint_path,
-            model=backbone2._model if hasattr(backbone2, '_model') else backbone2,
+            model=backbone2._model if hasattr(backbone2, "_model") else backbone2,
             device=device,
             verify_sha256=True,
         )
@@ -219,7 +192,11 @@ def main():
 
         # Summary
         logger.info("=" * 50)
-        if results['forward_pass'] and results['hidden_states_extracted'] and verify_results['model_sha256_valid']:
+        if (
+            results["forward_pass"]
+            and results["hidden_states_extracted"]
+            and verify_results["model_sha256_valid"]
+        ):
             logger.info("✓ ALL VERIFICATIONS PASSED")
             return 0
         else:

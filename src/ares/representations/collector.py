@@ -6,28 +6,27 @@ with support for multiple pooling methods and dataset storage.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any
+
 import torch
-import torch.nn as nn
-from typing import Dict, List, Optional, Any, Tuple, TYPE_CHECKING
 
 # TYPE_CHECKING imports avoid circular dependencies at runtime
 if TYPE_CHECKING:
-    from ares.backbone.base import Backbone
-    from ares.representations.dataset import RepresentationDataset
+    pass
 
-import torch.nn.functional as F
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-from .pooling import last_token_pool, mean_pool, max_pool
+from .pooling import last_token_pool, max_pool, mean_pool
 
 # Type aliases
-LayerIndices = Tuple[int, ...]
-HiddenStates = List[torch.Tensor]  # List of [batch, seq_len, hidden_dim]
+LayerIndices = tuple[int, ...]
+HiddenStates = list[torch.Tensor]  # List of [batch, seq_len, hidden_dim]
 
 
 @dataclass
 class RepresentationSample:
     """Single sample from the representation collector (PRD §3.2.2)."""
+
     sample_id: str
     domain: str  # general, math, code, science, reasoning
     task: str
@@ -39,12 +38,13 @@ class RepresentationSample:
     confidence: float
     entropy: float
     margin: float
-    attention_mask: Optional[torch.Tensor] = None
+    attention_mask: torch.Tensor | None = None
 
 
 @dataclass
 class CollectorConfig:
     """Configuration for RepresentationCollector."""
+
     # Which layers to extract from (negative = from end)
     # PRD §3.2.2: {-1, -6, -12, -24}
     default_layers: LayerIndices = (-1, -6, -12, -24)
@@ -87,18 +87,20 @@ class RepresentationCollector:
         # Use provided layers or fall back to standard layers
         if layers is not None:
             self.layers = layers
-        elif hasattr(backbone, 'hidden_state_layers'):
+        elif hasattr(backbone, "hidden_state_layers"):
             self.layers = backbone.hidden_state_layers
         else:
             self.layers = (-1, -6, -12, -24)
         self.pooling_method = pooling_method
-        self.device = torch.device(device) if device != "auto" else (
-            torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+        self.device = (
+            torch.device(device)
+            if device != "auto"
+            else (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
         )
 
         # Ensure backbone settings (safe check - works for QwenBackbone)
         try:
-            if hasattr(self.backbone, '_model') and hasattr(self.backbone._model, 'config'):
+            if hasattr(self.backbone, "_model") and hasattr(self.backbone._model, "config"):
                 self.backbone._model.config.use_cache = False
         except Exception:
             pass
@@ -112,7 +114,7 @@ class RepresentationCollector:
         cls,
         backbone,
         config: CollectorConfig,
-    ) -> "RepresentationCollector":
+    ) -> RepresentationCollector:
         """Create collector from config."""
         return cls(
             backbone=backbone,
@@ -127,7 +129,7 @@ class RepresentationCollector:
         attention_mask: torch.Tensor,
         output_hidden_states: bool = True,
         output_attentions: bool = False,
-    ) -> Tuple[List[torch.Tensor], torch.Tensor]:
+    ) -> tuple[list[torch.Tensor], torch.Tensor]:
         """Run forward pass and extract hidden states.
 
         Args:
@@ -150,7 +152,7 @@ class RepresentationCollector:
 
         # Extract hidden states - handle different output formats
         hidden_states = []
-        if hasattr(outputs, 'hidden_states') and outputs.hidden_states is not None:
+        if hasattr(outputs, "hidden_states") and outputs.hidden_states is not None:
             # Handle tuple/list of tensors
             if isinstance(outputs.hidden_states, (list, tuple)):
                 hidden_states = list(outputs.hidden_states)
@@ -163,9 +165,9 @@ class RepresentationCollector:
 
     def _pool_representations(
         self,
-        hidden_states: List[torch.Tensor],
+        hidden_states: list[torch.Tensor],
         attention_mask: torch.Tensor,
-    ) -> List[torch.Tensor]:
+    ) -> list[torch.Tensor]:
         """Apply pooling to extract representation vectors from each layer.
 
         Args:
@@ -192,9 +194,9 @@ class RepresentationCollector:
         self,
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
-        labels: Optional[torch.Tensor] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[List[torch.Tensor], torch.Tensor, Optional[List["RepresentationSample"]]]:
+        labels: torch.Tensor | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> tuple[list[torch.Tensor], torch.Tensor, list[RepresentationSample] | None]:
         """Collect representations from the backbone.
 
         Main entry point (PRD §3.2.2). Extracts hidden states from multiple layers,
@@ -239,10 +241,18 @@ class RepresentationCollector:
                 last_logits = logits[i, -1] if logits.dim() > 2 else logits[i]
                 probs = torch.softmax(last_logits, dim=-1)
                 top2_vals = torch.topk(probs, k=min(2, probs.size(-1))).values
-                margin_val = (top2_vals[0] - top2_vals[1]).item() if top2_vals.size(0) >= 2 else top2_vals[0].item()
+                margin_val = (
+                    (top2_vals[0] - top2_vals[1]).item()
+                    if top2_vals.size(0) >= 2
+                    else top2_vals[0].item()
+                )
 
                 # Squeeze batch dimension from representation
-                sample_repr = pooled[-1][i].squeeze(0) if len(pooled) > 0 else torch.zeros(self.backbone.hidden_size)
+                sample_repr = (
+                    pooled[-1][i].squeeze(0)
+                    if len(pooled) > 0
+                    else torch.zeros(self.backbone.hidden_size)
+                )
 
                 sample = RepresentationSample(
                     sample_id=f"{metadata.get('prefix', 'sample')}_{i}",
@@ -252,7 +262,11 @@ class RepresentationCollector:
                     representation=sample_repr,
                     logits=last_logits,
                     prediction=str(last_pred.item()),
-                    correctness=bool(labels is not None and i < labels.shape[0] and labels[i].item() == last_pred.item()),
+                    correctness=bool(
+                        labels is not None
+                        and i < labels.shape[0]
+                        and labels[i].item() == last_pred.item()
+                    ),
                     confidence=probs.max().item(),
                     entropy=self._compute_entropy(probs),
                     margin=margin_val,
@@ -273,9 +287,9 @@ class RepresentationCollector:
     def collect_to_dataset(
         self,
         dataloader: torch.utils.data.DataLoader,
-        output_dir: Optional[str] = None,
+        output_dir: str | None = None,
         save_samples: bool = True,
-    ) -> Tuple[List["RepresentationSample"], List[torch.Tensor]]:
+    ) -> tuple[list[RepresentationSample], list[torch.Tensor]]:
         """Collect representations from a dataloader and optionally save to dataset.
 
         Args:
@@ -317,12 +331,16 @@ class RepresentationCollector:
         # Save to dataset if output_dir provided
         if output_dir is not None and save_samples:
             import os
+
             os.makedirs(output_dir, exist_ok=True)
             output_path = f"{output_dir}/representations.pt"
-            torch.save({
-                "samples": all_samples,
-                "representations": all_representations,
-            }, output_path)
+            torch.save(
+                {
+                    "samples": all_samples,
+                    "representations": all_representations,
+                },
+                output_path,
+            )
             print(f"Saved {len(all_samples)} representations to {output_path}")
 
         return all_samples, all_representations
@@ -351,6 +369,6 @@ class RepresentationCollector:
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         **kwargs,
-    ) -> Tuple[List[torch.Tensor], torch.Tensor]:
+    ) -> tuple[list[torch.Tensor], torch.Tensor]:
         """Allow collector to be called directly."""
         return self.collect(input_ids=input_ids, attention_mask=attention_mask, **kwargs)

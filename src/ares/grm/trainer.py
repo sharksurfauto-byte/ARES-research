@@ -4,16 +4,15 @@ Implements supervised training on (representation, correctness_label) pairs
 plus optional self-supervised pretraining.
 """
 
+from typing import Any
+
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
-from typing import Dict, Any, List, Optional
-from tqdm import tqdm
 
-from .architecture import GRM
+from ..utils.checkpoint import load_checkpoint, save_checkpoint
 from ..utils.ddp import is_main_process
-from ..utils.checkpoint import save_checkpoint, load_checkpoint
-from ..utils.wandb_utils import init_wandb, log_metrics, log_model_artifact
+from ..utils.wandb_utils import log_metrics
+from .architecture import GRM
 
 
 class GRMTrainer:
@@ -29,8 +28,8 @@ class GRMTrainer:
         self,
         model: GRM,
         device: torch.device,
-        config: Optional[Dict[str, Any]] = None,
-        wandb_logger: Optional[Any] = None,
+        config: dict[str, Any] | None = None,
+        wandb_logger: Any | None = None,
     ):
         """Initialize GRM trainer.
 
@@ -67,7 +66,7 @@ class GRMTrainer:
         self.epoch = 0
         self.global_step = 0
 
-    def _move_to_device(self, batch: Dict[str, Any]) -> Dict[str, Any]:
+    def _move_to_device(self, batch: dict[str, Any]) -> dict[str, Any]:
         """Move batch tensors to device."""
         moved = {}
         for k, v in batch.items():
@@ -82,7 +81,7 @@ class GRMTrainer:
         representations: torch.Tensor,
         domain_labels: torch.Tensor,
         feasibility_labels: torch.Tensor,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Train one epoch.
 
         Args:
@@ -108,7 +107,7 @@ class GRMTrainer:
         # Process in batches
         batch_size = self.config.get("batch_size", 32)
         for start in range(0, n, batch_size):
-            indices = permutation[start:start + batch_size]
+            indices = permutation[start : start + batch_size]
             batch_repr = representations[indices].to(self.device)
             batch_domain = domain_labels[indices].to(self.device)
             batch_feasibility = feasibility_labels[indices].to(self.device)
@@ -123,7 +122,9 @@ class GRMTrainer:
 
             # Squeeze feasibility with clone to avoid view issues
             feasibility_squeezed = feasibility.squeeze(-1).clone()
-            feasibility_loss = self.feasibility_criterion(feasibility_squeezed, batch_feasibility.float())
+            feasibility_loss = self.feasibility_criterion(
+                feasibility_squeezed, batch_feasibility.float()
+            )
 
             # Combine losses into fresh tensor
             loss = domain_loss + feasibility_loss
@@ -140,7 +141,9 @@ class GRMTrainer:
             # Accuracy
             pred_domain = torch.argmax(domain_logits, dim=-1)
             correct_domain += (pred_domain == batch_domain).sum().item()
-            correct_feasibility += ((feasibility.squeeze(-1) > 0.5).float() == batch_feasibility.float()).sum().item()
+            correct_feasibility += (
+                ((feasibility.squeeze(-1) > 0.5).float() == batch_feasibility.float()).sum().item()
+            )
             total_samples += batch_repr.size(0)
 
         # Step scheduler
@@ -153,7 +156,9 @@ class GRMTrainer:
             "domain_loss": total_domain_loss / n_batches,
             "feasibility_loss": total_feasibility_loss / n_batches,
             "domain_accuracy": correct_domain / total_samples if total_samples > 0 else 0.0,
-            "feasibility_accuracy": correct_feasibility / total_samples if total_samples > 0 else 0.0,
+            "feasibility_accuracy": (
+                correct_feasibility / total_samples if total_samples > 0 else 0.0
+            ),
             "epoch": self.epoch,
             "learning_rate": self.optimizer.param_groups[0]["lr"],
         }
@@ -166,10 +171,10 @@ class GRMTrainer:
         domain_labels: torch.Tensor,
         feasibility_labels: torch.Tensor,
         epochs: int = 10,
-        val_representations: Optional[torch.Tensor] = None,
-        val_domain_labels: Optional[torch.Tensor] = None,
-        val_feasibility_labels: Optional[torch.Tensor] = None,
-    ) -> Dict[str, List[float]]:
+        val_representations: torch.Tensor | None = None,
+        val_domain_labels: torch.Tensor | None = None,
+        val_feasibility_labels: torch.Tensor | None = None,
+    ) -> dict[str, list[float]]:
         """Full training loop.
 
         Args:
@@ -217,8 +222,11 @@ class GRMTrainer:
 
             # Log to W&B
             if self.wandb_logger is not None:
-                log_metrics(self.wandb_logger, {f"grm/{k}": v for k, v in train_metrics.items()},
-                           step=self.epoch)
+                log_metrics(
+                    self.wandb_logger,
+                    {f"grm/{k}": v for k, v in train_metrics.items()},
+                    step=self.epoch,
+                )
 
             if is_main_process():
                 print(
@@ -235,7 +243,7 @@ class GRMTrainer:
         representations: torch.Tensor,
         domain_labels: torch.Tensor,
         feasibility_labels: torch.Tensor,
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Validation pass."""
         self.model.eval()
         total_loss = 0.0
@@ -259,16 +267,22 @@ class GRMTrainer:
                 total_loss += loss.item()
                 pred_domain = torch.argmax(domain_logits, dim=-1)
                 correct_domain += (pred_domain == batch_domain).sum().item()
-                correct_feasibility += ((feasibility.squeeze(-1) > 0.5).float() == batch_feasibility.float()).sum().item()
+                correct_feasibility += (
+                    ((feasibility.squeeze(-1) > 0.5).float() == batch_feasibility.float())
+                    .sum()
+                    .item()
+                )
 
         n_batches = max(1, (total_samples + batch_size - 1) // batch_size)
         return {
             "val_loss": total_loss / n_batches,
             "val_domain_accuracy": correct_domain / total_samples if total_samples > 0 else 0.0,
-            "val_feasibility_accuracy": correct_feasibility / total_samples if total_samples > 0 else 0.0,
+            "val_feasibility_accuracy": (
+                correct_feasibility / total_samples if total_samples > 0 else 0.0
+            ),
         }
 
-    def save(self, path: str, config: Optional[Dict[str, Any]] = None):
+    def save(self, path: str, config: dict[str, Any] | None = None):
         """Save model checkpoint.
 
         Args:
@@ -290,8 +304,8 @@ class GRMTrainer:
         model: GRM,
         path: str,
         device: torch.device,
-        config: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Load model checkpoint.
 
         Args:

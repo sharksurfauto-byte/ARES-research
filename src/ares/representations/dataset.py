@@ -3,14 +3,13 @@
 Provides a PyTorch Dataset interface over collected backbone representations.
 """
 
-import os
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Union, Tuple
+from typing import Any
+
 import torch
 from torch.utils.data import Dataset
 
 from .collector import RepresentationSample
-
 
 DOMAIN_MAP = {
     "general": 0,
@@ -26,8 +25,8 @@ class RepresentationDataset(Dataset):
 
     def __init__(
         self,
-        samples: Optional[List[RepresentationSample]] = None,
-        representations: Optional[List[torch.Tensor]] = None,
+        samples: list[RepresentationSample] | None = None,
+        representations: list[torch.Tensor] | None = None,
     ):
         """Initialize dataset.
 
@@ -43,8 +42,8 @@ class RepresentationDataset(Dataset):
             return len(self.samples)
         return len(self.representations)
 
-    def __getitem__(self, idx: int) -> Dict[str, Any]:
-        item: Dict[str, Any] = {}
+    def __getitem__(self, idx: int) -> dict[str, Any]:
+        item: dict[str, Any] = {}
         if idx < len(self.representations):
             item["representation"] = self.representations[idx]
 
@@ -63,7 +62,7 @@ class RepresentationDataset(Dataset):
 
         return item
 
-    def get_tensors(self) -> Dict[str, torch.Tensor]:
+    def get_tensors(self) -> dict[str, torch.Tensor]:
         """Convert dataset into stacked PyTorch tensors.
 
         Returns:
@@ -74,9 +73,23 @@ class RepresentationDataset(Dataset):
 
         # Extract representations
         if self.representations:
-            reps = torch.stack([r.detach().cpu() if isinstance(r, torch.Tensor) else torch.tensor(r) for r in self.representations])
+            reps = torch.stack(
+                [
+                    r.detach().cpu() if isinstance(r, torch.Tensor) else torch.tensor(r)
+                    for r in self.representations
+                ]
+            )
         elif self.samples:
-            reps = torch.stack([s.representation.detach().cpu() if isinstance(s.representation, torch.Tensor) else torch.tensor(s.representation) for s in self.samples])
+            reps = torch.stack(
+                [
+                    (
+                        s.representation.detach().cpu()
+                        if isinstance(s.representation, torch.Tensor)
+                        else torch.tensor(s.representation)
+                    )
+                    for s in self.samples
+                ]
+            )
         else:
             raise ValueError("No representation data found")
 
@@ -86,8 +99,12 @@ class RepresentationDataset(Dataset):
 
         # Extract labels
         if self.samples:
-            domains = torch.tensor([DOMAIN_MAP.get(s.domain, 0) for s in self.samples], dtype=torch.long)
-            feasibility = torch.tensor([1.0 if s.correctness else 0.0 for s in self.samples], dtype=torch.float32)
+            domains = torch.tensor(
+                [DOMAIN_MAP.get(s.domain, 0) for s in self.samples], dtype=torch.long
+            )
+            feasibility = torch.tensor(
+                [1.0 if s.correctness else 0.0 for s in self.samples], dtype=torch.float32
+            )
         else:
             domains = torch.zeros(len(self), dtype=torch.long)
             feasibility = torch.ones(len(self), dtype=torch.float32)
@@ -98,7 +115,7 @@ class RepresentationDataset(Dataset):
             "feasibility_labels": feasibility,
         }
 
-    def save(self, path: Union[str, Path]) -> str:
+    def save(self, path: str | Path) -> str:
         """Save dataset to .pt file.
 
         Args:
@@ -119,7 +136,7 @@ class RepresentationDataset(Dataset):
         return str(path)
 
     @classmethod
-    def load(cls, path: Union[str, Path]) -> "RepresentationDataset":
+    def load(cls, path: str | Path) -> "RepresentationDataset":
         """Load dataset from .pt file.
 
         Args:
@@ -139,7 +156,7 @@ class RepresentationDataset(Dataset):
 
     def train_test_split(
         self, test_fraction: float = 0.1, seed: int = 42
-    ) -> Tuple["RepresentationDataset", "RepresentationDataset"]:
+    ) -> tuple["RepresentationDataset", "RepresentationDataset"]:
         """Split dataset into train and validation datasets.
 
         Args:
@@ -162,7 +179,9 @@ class RepresentationDataset(Dataset):
         train_samples = [self.samples[i] for i in train_indices] if self.samples else []
         val_samples = [self.samples[i] for i in val_indices] if self.samples else []
 
-        train_reps = [self.representations[i] for i in train_indices] if self.representations else []
+        train_reps = (
+            [self.representations[i] for i in train_indices] if self.representations else []
+        )
         val_reps = [self.representations[i] for i in val_indices] if self.representations else []
 
         return (

@@ -3,19 +3,18 @@
 Implements PRD §6 Week 1: Checkpoint system with SHA256 metadata.
 """
 
-import os
-import json
 import hashlib
-import torch
 import logging
-from pathlib import Path
-from typing import Optional, Dict, Any, Union
 from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import torch
 
 logger = logging.getLogger(__name__)
 
 
-def compute_sha256(filepath: Union[str, Path]) -> str:
+def compute_sha256(filepath: str | Path) -> str:
     """Compute SHA256 hash of a file.
 
     Args:
@@ -32,7 +31,7 @@ def compute_sha256(filepath: Union[str, Path]) -> str:
     return sha256_hash.hexdigest()
 
 
-def compute_state_dict_sha256(state_dict: Dict[str, torch.Tensor]) -> str:
+def compute_state_dict_sha256(state_dict: dict[str, torch.Tensor]) -> str:
     """Compute SHA256 hash of a model state dict.
 
     Args:
@@ -57,13 +56,13 @@ def compute_state_dict_sha256(state_dict: Dict[str, torch.Tensor]) -> str:
 
 def save_checkpoint(
     model: torch.nn.Module,
-    optimizer: Optional[torch.optim.Optimizer] = None,
-    scheduler: Optional[Any] = None,
+    optimizer: torch.optim.Optimizer | None = None,
+    scheduler: Any | None = None,
     epoch: int = 0,
     step: int = 0,
-    metrics: Optional[Dict[str, float]] = None,
-    path: Union[str, Path] = "checkpoints/checkpoint.pt",
-    config: Optional[Dict[str, Any]] = None,
+    metrics: dict[str, float] | None = None,
+    path: str | Path = "checkpoints/checkpoint.pt",
+    config: dict[str, Any] | None = None,
     verify_sha256: bool = True,
 ) -> str:
     """Save model checkpoint with SHA256 verification.
@@ -121,14 +120,14 @@ def save_checkpoint(
 
 
 def load_checkpoint(
-    path: Union[str, Path],
+    path: str | Path,
     model: torch.nn.Module,
-    optimizer: Optional[torch.optim.Optimizer] = None,
-    scheduler: Optional[Any] = None,
-    device: Union[str, torch.device] = "cpu",
+    optimizer: torch.optim.Optimizer | None = None,
+    scheduler: Any | None = None,
+    device: str | torch.device = "cpu",
     verify_sha256: bool = True,
     strict: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Load model checkpoint with SHA256 verification.
 
     Args:
@@ -212,7 +211,7 @@ def load_checkpoint(
     return metadata
 
 
-def verify_checkpoint(path: Union[str, Path]) -> Dict[str, Any]:
+def verify_checkpoint(path: str | Path) -> dict[str, Any]:
     """Verify checkpoint integrity without loading into model.
 
     Args:
@@ -244,7 +243,7 @@ def verify_checkpoint(path: Union[str, Path]) -> Dict[str, Any]:
     saved_file_sha256 = None
     if sha256_path.exists():
         saved_file_sha256 = sha256_path.read_text().strip()
-        results["file_sha256_valid"] = (results["file_sha256"] == saved_file_sha256)
+        results["file_sha256_valid"] = results["file_sha256"] == saved_file_sha256
 
     # Load checkpoint metadata
     try:
@@ -257,11 +256,11 @@ def verify_checkpoint(path: Union[str, Path]) -> Dict[str, Any]:
         # Verify model SHA256 if present
         if "model_state_dict" in checkpoint and results["model_sha256"]:
             computed = compute_state_dict_sha256(checkpoint["model_state_dict"])
-            results["model_sha256_valid"] = (computed == results["model_sha256"])
+            results["model_sha256_valid"] = computed == results["model_sha256"]
 
         # Verify file SHA256 from sidecar (fallback to checkpoint for backwards compat)
         if not sha256_path.exists() and "file_sha256" in checkpoint:
-            results["file_sha256_valid"] = (results["file_sha256"] == checkpoint["file_sha256"])
+            results["file_sha256_valid"] = results["file_sha256"] == checkpoint["file_sha256"]
 
     except Exception as e:
         results["error"] = str(e)
@@ -270,9 +269,8 @@ def verify_checkpoint(path: Union[str, Path]) -> Dict[str, Any]:
 
 
 def find_latest_checkpoint(
-    checkpoint_dir: Union[str, Path],
-    pattern: str = "checkpoint_*.pt"
-) -> Optional[Path]:
+    checkpoint_dir: str | Path, pattern: str = "checkpoint_*.pt"
+) -> Path | None:
     """Find the latest checkpoint in a directory.
 
     Args:
@@ -296,7 +294,7 @@ class CheckpointManager:
 
     def __init__(
         self,
-        save_dir: Union[str, Path],
+        save_dir: str | Path,
         keep_last_n: int = 3,
         verify_sha256: bool = True,
     ):
@@ -315,13 +313,13 @@ class CheckpointManager:
     def save(
         self,
         model: torch.nn.Module,
-        optimizer: Optional[torch.optim.Optimizer] = None,
-        scheduler: Optional[Any] = None,
+        optimizer: torch.optim.Optimizer | None = None,
+        scheduler: Any | None = None,
         epoch: int = 0,
         step: int = 0,
-        metrics: Optional[Dict[str, float]] = None,
-        config: Optional[Dict[str, Any]] = None,
-        name: Optional[str] = None,
+        metrics: dict[str, float] | None = None,
+        config: dict[str, Any] | None = None,
+        name: str | None = None,
     ) -> Path:
         """Save checkpoint with automatic rotation.
 
@@ -362,7 +360,7 @@ class CheckpointManager:
         checkpoints = list(self.save_dir.glob("checkpoint_*.pt"))
         checkpoints.sort(key=lambda p: p.stat().st_mtime, reverse=True)
 
-        for old_checkpoint in checkpoints[self.keep_last_n:]:
+        for old_checkpoint in checkpoints[self.keep_last_n :]:
             try:
                 old_checkpoint.unlink()
                 logger.info(f"Removed old checkpoint: {old_checkpoint}")
@@ -372,10 +370,10 @@ class CheckpointManager:
     def load_latest(
         self,
         model: torch.nn.Module,
-        optimizer: Optional[torch.optim.Optimizer] = None,
-        scheduler: Optional[Any] = None,
-        device: Union[str, torch.device] = "cpu",
-    ) -> Optional[Dict[str, Any]]:
+        optimizer: torch.optim.Optimizer | None = None,
+        scheduler: Any | None = None,
+        device: str | torch.device = "cpu",
+    ) -> dict[str, Any] | None:
         """Load the latest checkpoint.
 
         Args:

@@ -1,18 +1,18 @@
 """Tests for backbone loader."""
 
-import pytest
-import torch
-from unittest.mock import Mock, patch, MagicMock
-from omegaconf import DictConfig, OmegaConf
-
 # Add src to path
 import sys
 from pathlib import Path
+from unittest.mock import Mock, patch
+
+import pytest
+import torch
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from ares.backbone.config import BackboneConfig
 from ares.backbone.base import Backbone, QwenBackbone
-from ares.backbone.loader import load_backbone, verify_backbone, _get_torch_dtype
+from ares.backbone.config import BackboneConfig
+from ares.backbone.loader import _get_torch_dtype, load_backbone, verify_backbone
 
 
 class TestBackboneConfig:
@@ -90,14 +90,14 @@ class TestBackboneInterface:
     def test_qwen_backbone_abstract_methods(self):
         """Test QwenBackbone implements required methods."""
         # Check all abstract methods are implemented
-        assert hasattr(QwenBackbone, 'forward')
-        assert hasattr(QwenBackbone, 'get_hidden_states')
-        assert hasattr(QwenBackbone, 'get_model_config')
-        assert hasattr(QwenBackbone, 'get_device')
-        assert hasattr(QwenBackbone, 'get_dtype')
-        assert hasattr(QwenBackbone, 'hidden_size')
-        assert hasattr(QwenBackbone, 'num_layers')
-        assert hasattr(QwenBackbone, 'vocab_size')
+        assert hasattr(QwenBackbone, "forward")
+        assert hasattr(QwenBackbone, "get_hidden_states")
+        assert hasattr(QwenBackbone, "get_model_config")
+        assert hasattr(QwenBackbone, "get_device")
+        assert hasattr(QwenBackbone, "get_dtype")
+        assert hasattr(QwenBackbone, "hidden_size")
+        assert hasattr(QwenBackbone, "num_layers")
+        assert hasattr(QwenBackbone, "vocab_size")
 
 
 class TestVerifyBackbone:
@@ -117,12 +117,8 @@ class TestVerifyBackbone:
         # Mock forward output
         mock_output = Mock()
         mock_output.logits = torch.randn(1, 32, 151936)
-        mock_output.hidden_states = tuple(
-            torch.randn(1, 32, 896) for _ in range(25)
-        )
-        mock_output.attentions = tuple(
-            torch.randn(1, 14, 32, 32) for _ in range(24)
-        )
+        mock_output.hidden_states = tuple(torch.randn(1, 32, 896) for _ in range(25))
+        mock_output.attentions = tuple(torch.randn(1, 14, 32, 32) for _ in range(24))
         mock_model.return_value = mock_output
         # parameters() should return an iterator
         mock_model.parameters.side_effect = lambda: iter([torch.randn(10, 10)])
@@ -145,8 +141,8 @@ class TestVerifyBackbone:
         assert len(results["hidden_states_shapes"]) == 25
 
 
-@patch('ares.backbone.loader.AutoModelForCausalLM.from_pretrained')
-@patch('ares.backbone.loader.AutoConfig.from_pretrained')
+@patch("ares.backbone.loader.AutoModelForCausalLM.from_pretrained")
+@patch("ares.backbone.loader.AutoConfig.from_pretrained")
 class TestLoadBackbone:
     """Tests for load_backbone function."""
 
@@ -220,8 +216,8 @@ class TestLoadBackbone:
 class TestBackboneProperties:
     """Tests for backbone properties."""
 
-    @patch('ares.backbone.loader.AutoModelForCausalLM.from_pretrained')
-    @patch('ares.backbone.loader.AutoConfig.from_pretrained')
+    @patch("ares.backbone.loader.AutoModelForCausalLM.from_pretrained")
+    @patch("ares.backbone.loader.AutoConfig.from_pretrained")
     def test_frozen_parameters(self, mock_config_class, mock_model_class):
         """Test that backbone parameters are frozen."""
         mock_config = Mock()
@@ -248,8 +244,8 @@ class TestBackboneProperties:
         for param in backbone._model.parameters():
             assert param.requires_grad is False
 
-    @patch('ares.backbone.loader.AutoModelForCausalLM.from_pretrained')
-    @patch('ares.backbone.loader.AutoConfig.from_pretrained')
+    @patch("ares.backbone.loader.AutoModelForCausalLM.from_pretrained")
+    @patch("ares.backbone.loader.AutoConfig.from_pretrained")
     def test_model_in_eval_mode(self, mock_config_class, mock_model_class):
         """Test that backbone is in eval mode."""
         mock_config = Mock()

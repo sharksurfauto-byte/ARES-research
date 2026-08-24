@@ -21,11 +21,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import torch
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import OmegaConf
 
-from ares import load_backbone, RepresentationCollector, CollectorConfig, BackboneConfig
-from ares.utils.checkpoint import verify_checkpoint
-from ares.utils.wandb_utils import init_wandb, log_metrics
+from ares import BackboneConfig, CollectorConfig, RepresentationCollector, load_backbone
 
 
 def parse_args():
@@ -34,42 +32,26 @@ def parse_args():
         "--config",
         type=str,
         default="representation_collection.yaml",
-        help="Config filename (under configs/reliability/)"
+        help="Config filename (under configs/reliability/)",
     )
     parser.add_argument(
-        "--model_name",
-        type=str,
-        default="Qwen/Qwen2.5-0.5B",
-        help="Model name from HuggingFace"
+        "--model_name", type=str, default="Qwen/Qwen2.5-0.5B", help="Model name from HuggingFace"
     )
     parser.add_argument(
-        "--max_samples",
-        type=int,
-        default=100,
-        help="Maximum number of samples to collect"
+        "--max_samples", type=int, default=100, help="Maximum number of samples to collect"
     )
     parser.add_argument(
-        "--analyze",
-        action="store_true",
-        help="Run analysis on collected representations"
+        "--analyze", action="store_true", help="Run analysis on collected representations"
     )
     parser.add_argument(
         "--output_dir",
         type=str,
         default="representations",
-        help="Output directory for saved representations"
+        help="Output directory for saved representations",
     )
+    parser.add_argument("--batch_size", type=int, default=4, help="Batch size for collection")
     parser.add_argument(
-        "--batch_size",
-        type=int,
-        default=4,
-        help="Batch size for collection"
-    )
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="auto",
-        help="Device to use (cuda, cpu, auto)"
+        "--device", type=str, default="auto", help="Device to use (cuda, cpu, auto)"
     )
     return parser.parse_args()
 
@@ -104,11 +86,19 @@ def main():
         backbone_cfg = {
             "name": args.model_name,
             "revision": "main",
-            "torch_dtype": "float32" if device.type == "cpu" else ("bfloat16" if "4bit" not in args.model_name else "float16"),
+            "torch_dtype": (
+                "float32"
+                if device.type == "cpu"
+                else ("bfloat16" if "4bit" not in args.model_name else "float16")
+            ),
             "device_map": "cpu" if device.type == "cpu" else "auto",
             "use_cache": False,
             "attn_implementation": "eager",
-            "load_in_4bit": False if device.type == "cpu" else ("7B" in args.model_name and "4bit" in args.model_name),
+            "load_in_4bit": (
+                False
+                if device.type == "cpu"
+                else ("7B" in args.model_name and "4bit" in args.model_name)
+            ),
             "bnb_4bit_quant_type": "nf4",
             "bnb_4bit_compute_dtype": "bfloat16",
             "bnb_4bit_use_double_quant": True,
@@ -121,15 +111,15 @@ def main():
         # Create collector
         collector = RepresentationCollector(
             backbone=backbone,
-            layers=cfg.default_layers if hasattr(cfg, 'default_layers') else (-1, -6, -12, -24),
-            pooling_method=cfg.default_pooling if hasattr(cfg, 'default_pooling') else "mean",
+            layers=cfg.default_layers if hasattr(cfg, "default_layers") else (-1, -6, -12, -24),
+            pooling_method=cfg.default_pooling if hasattr(cfg, "default_pooling") else "mean",
             device=str(device),
         )
 
         # Create sample dataset (simple synthetic data for verification)
         # In practice, this would use real datasets (wikitext, gsm8k, etc.)
+
         from torch.utils.data import DataLoader, Dataset
-        import random
 
         class SyntheticDataset(Dataset):
             def __init__(self, n_samples, max_len=32, vocab_size=151936):
@@ -152,7 +142,9 @@ def main():
                 }
 
             def custom_getitem(self, idx, domain="general", task="classification", metadata=None):
-                input_ids = torch.randint(0, self.vocab_size, (1, torch.randint(1, self.max_len, (1,)).item()))
+                input_ids = torch.randint(
+                    0, self.vocab_size, (1, torch.randint(1, self.max_len, (1,)).item())
+                )
                 attention_mask = torch.ones(1, input_ids.shape[1])
                 return {
                     "input_ids": input_ids,
@@ -184,7 +176,7 @@ def main():
         if args.analyze:
             logger.info("Running representation analysis...")
             # Load saved representations and analyze
-            import os
+
             save_dir = Path(args.output_dir)
             if save_dir.exists():
                 pt_file = list(save_dir.glob("*.pt"))
@@ -205,6 +197,7 @@ def main():
     except Exception as e:
         logger.error(f"Representation collection failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

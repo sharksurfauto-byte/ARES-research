@@ -1,11 +1,11 @@
 """Tests for LRM architecture and trainer."""
 
-import pytest
-import torch
+import sys
 import tempfile
 from pathlib import Path
 
-import sys
+import torch
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from ares.lrm import LRM, LRMTrainer

@@ -4,10 +4,10 @@ Fits a temperature parameter T that scales logits to improve calibration.
 Minimizes Negative Log-Likelihood (NLL) on a validation set.
 """
 
+from typing import Any
+
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from typing import Dict, Any, Optional
 
 
 class TemperatureScaling(nn.Module):
@@ -20,7 +20,7 @@ class TemperatureScaling(nn.Module):
     4. Report: ECE before/after calibration, Brier score, reliability diagrams
     """
 
-    def __init__(self, model: Optional[nn.Module] = None, device: Optional[torch.device] = None):
+    def __init__(self, model: nn.Module | None = None, device: torch.device | None = None):
         """Initialize temperature scaling.
 
         Args:
@@ -57,7 +57,7 @@ class TemperatureScaling(nn.Module):
         epochs: int = 20,
         lr: float = 0.01,
         use_val_set: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Fit the temperature parameter to minimize NLL.
 
         Args:
@@ -89,8 +89,10 @@ class TemperatureScaling(nn.Module):
                 # Apply temperature and compute NLL
                 scaled_logits = self.forward(val_logits)
                 probs = torch.sigmoid(scaled_logits)  # For binary classification
-                nll = -(val_labels * torch.log(probs + 1e-7) +
-                        (1 - val_labels) * torch.log(1 - probs + 1e-7)).mean()
+                nll = -(
+                    val_labels * torch.log(probs + 1e-7)
+                    + (1 - val_labels) * torch.log(1 - probs + 1e-7)
+                ).mean()
 
                 nll.backward()
                 optimizer.step()
@@ -150,7 +152,7 @@ def fit_temperature_scaling(
     labels: torch.Tensor,
     epochs: int = 20,
     lr: float = 0.01,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Standalone temperature scaling fit (convenience function).
 
     Args:
