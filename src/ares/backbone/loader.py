@@ -16,11 +16,12 @@ from .config import BackboneConfig
 logger = logging.getLogger(__name__)
 
 
-def load_backbone(config: BackboneConfig) -> Backbone:
+def load_backbone(config_or_name: Any, **kwargs) -> Backbone:
     """Load a pretrained backbone model with ARES-required configuration.
 
     Args:
-        config: BackboneConfig with all loading parameters
+        config_or_name: BackboneConfig instance or model_name string
+        **kwargs: Overrides when config_or_name is a string (e.g. device)
 
     Returns:
         Backbone wrapper (QwenBackbone) with frozen weights and correct settings
@@ -28,6 +29,37 @@ def load_backbone(config: BackboneConfig) -> Backbone:
     Raises:
         ValueError: If model loading fails or config is invalid
     """
+    if isinstance(config_or_name, str):
+        device = kwargs.pop("device", "cuda" if torch.cuda.is_available() else "cpu")
+        device_str = device.type if isinstance(device, torch.device) else str(device)
+        cfg_dict = {
+            "name": config_or_name,
+            "revision": kwargs.pop("revision", "main"),
+            "torch_dtype": (
+                "float32"
+                if device_str == "cpu"
+                else ("bfloat16" if "4bit" not in config_or_name else "float16")
+            ),
+            "device_map": "cpu" if device_str == "cpu" else "auto",
+            "use_cache": False,
+            "attn_implementation": "eager",
+            "load_in_4bit": (
+                False
+                if device_str == "cpu"
+                else ("7B" in config_or_name and "4bit" in config_or_name)
+            ),
+            "bnb_4bit_quant_type": "nf4",
+            "bnb_4bit_compute_dtype": "bfloat16",
+            "bnb_4bit_use_double_quant": True,
+            "use_peft": False,
+            "gradient_checkpointing": True,
+            "hidden_state_layers": (-1, -6, -12, -24),
+        }
+        cfg_dict.update(kwargs)
+        config = BackboneConfig.from_dict(cfg_dict)
+    else:
+        config = config_or_name
+
     logger.info(f"Loading backbone: {config.name}")
 
     # Prepare model loading kwargs

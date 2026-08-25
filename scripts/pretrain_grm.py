@@ -68,25 +68,31 @@ def parse_args():
 
 
 def collect_unlabeled_representations(
-    model_name: str,
+    backbone_or_name: Any,
     max_samples: int,
     device: torch.device,
     dataset: str = "wikitext",
+    model_name: str = "Qwen/Qwen2.5-0.5B",
 ) -> list[torch.Tensor]:
     """
     Collect multi-layer representations from unlabeled data.
 
     Args:
-        model_name: Backbone model name
+        backbone_or_name: Pre-loaded Backbone object or model_name string
         max_samples: Number of samples to collect
         device: Computation device
         dataset: Dataset name
+        model_name: Model name for tokenizer loading
 
     Returns:
         List of [N, hidden_dim] tensors, one per layer
     """
-    # Load backbone
-    backbone = load_backbone(model_name, device=device)
+    if isinstance(backbone_or_name, str):
+        backbone = load_backbone(backbone_or_name, device=device)
+        tokenizer_name = backbone_or_name
+    else:
+        backbone = backbone_or_name
+        tokenizer_name = model_name
 
     # Create collector
     collector = RepresentationCollector(
@@ -112,7 +118,7 @@ def collect_unlabeled_representations(
     # Tokenize
     from transformers import AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -219,10 +225,11 @@ def main():
 
         logger.info(f"Collecting {args.max_samples} unlabeled samples from {args.dataset}")
         layer_reps = collect_unlabeled_representations(
-            model_name=args.model_name,
+            backbone_or_name=backbone,
             max_samples=args.max_samples,
             device=device,
             dataset=args.dataset,
+            model_name=args.model_name,
         )
 
         # Create pretraining config
