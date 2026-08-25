@@ -25,6 +25,7 @@ import torch
 from omegaconf import OmegaConf
 
 from ares import GRM, RepresentationCollector, load_backbone
+from ares.backbone.config import BackboneConfig
 from ares.grm.pretraining import (
     GRMPretrainer,
     PretrainingConfig,
@@ -189,7 +190,31 @@ def main():
             )
 
         logger.info(f"Loading backbone: {args.model_name}")
-        backbone = load_backbone(args.model_name, device=device)
+        # Build BackboneConfig (same pattern as collect_representations.py)
+        backbone_cfg = {
+            "name": args.model_name,
+            "revision": "main",
+            "torch_dtype": (
+                "float32"
+                if device.type == "cpu"
+                else ("bfloat16" if "4bit" not in args.model_name else "float16")
+            ),
+            "device_map": "cpu" if device.type == "cpu" else "auto",
+            "use_cache": False,
+            "attn_implementation": "eager",
+            "load_in_4bit": (
+                False
+                if device.type == "cpu"
+                else ("7B" in args.model_name and "4bit" in args.model_name)
+            ),
+            "bnb_4bit_quant_type": "nf4",
+            "bnb_4bit_compute_dtype": "bfloat16",
+            "bnb_4bit_use_double_quant": True,
+            "use_peft": False,
+            "gradient_checkpointing": True,
+            "hidden_state_layers": (-1, -6, -12, -24),
+        }
+        backbone = load_backbone(BackboneConfig.from_dict(backbone_cfg))
         input_dim = backbone.hidden_size  # 896 for Qwen2.5-0.5B
 
         logger.info(f"Collecting {args.max_samples} unlabeled samples from {args.dataset}")
