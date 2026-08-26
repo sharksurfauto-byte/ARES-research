@@ -2,10 +2,10 @@
 
 PRD: ARES_RESEARCH_PRD.md
 
-Updated with Week 2 modules: Representation Collector, GRM, LRM, Calibration.
+Updated with Week 3 modules: Expert Router, LoRA Experts, ExpertManager.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 from .backbone import (
     Backbone,
@@ -39,6 +39,14 @@ from .config import (
 )
 from .config import (
     BackboneConfig as ConfigBackboneConfig,
+)
+from .experts import (
+    ExpertManager,
+    LoRAExpert,
+    LoRAExpertConfig,
+    LoRALayer,
+    Router,
+    RouterConfig as ExpertRouterConfig,
 )
 from .grm import GRM, GRMTrainer
 from .lrm import LRM, LRMTrainer
@@ -146,6 +154,13 @@ __all__ = [
     # LRM
     "LRM",
     "LRMTrainer",
+    # Experts
+    "LoRAExpert",
+    "LoRAExpertConfig",
+    "LoRALayer",
+    "ExpertManager",
+    "Router",
+    "ExpertRouterConfig",
     # Calibration
     "TemperatureScaling",
     "fit_temperature_scaling",

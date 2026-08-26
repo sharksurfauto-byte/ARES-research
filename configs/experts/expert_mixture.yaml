@@ -1,0 +1,38 @@
+# Expert Mixture Configuration (PRD §4.5)
+# Configures training of 5 LoRA experts (E0-general, E1-math, E2-code,
+# E3-science, E4-reasoning) on domain-targeted datasets.
+
+experts:
+  r: 16                         # LoRA rank
+  lora_alpha: 32                # LoRA scaling factor
+  lora_dropout: 0.05           # Dropout on LoRA adapters
+  in_features: 896             # Qwen2.5-0.5B hidden size
+  out_features: 896            # Same as input (residual adaptation)
+
+  expert_names:
+    - general       # E0: general-purpose (wikitext)
+    - math          # E1: math reasoning (gsm8k)
+    - code          # E2: code generation (mbpp)
+    - science       # E3: scientific reasoning (ai2_arc)
+    - reasoning     # E4: multi-step logic (custom)
+
+training:
+  epochs: 3                       # Number of training epochs per expert
+  batch_size: 16                  # Batch size
+  learning_rate: 1e-4            # Adam learning rate
+  weight_decay: 0.01             # Weight decay for optimizer
+
+  # Per-expert dataset mappings (HF dataset names or local paths)
+  datasets:
+    general: wikitext              # General domain trivia
+    math: gsm8k                    # Grade-school math word problems
+    code: mbpp                     # Most basic Python problems
+    science: ai2_arc               # AI2 Abstract Reasoning Corpus
+    reasoning: custom_reasoning    # Multi-step reasoning datasets
+
+  # Output configuration
+  output_dir: checkpoints/experts  # Where expert .pt checkpoints are saved
+
+  # Oracle / correctness-supervised weighting
+  correctness_weight: 1.0          # Weight for correctness-supervised LM loss
+  focal_gamma: 2.0                 # Focal loss gamma for hard example weighting

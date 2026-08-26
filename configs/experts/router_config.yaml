@@ -1,0 +1,29 @@
+# Router Training Configuration (PRD §4.4)
+# Supervised Option A: Oracle Pretraining for Router MLP.
+
+router:
+  input_dim: 896                # Qwen2.5-0.5B hidden size
+  hidden_dim: 256               # Router MLP hidden layer
+  n_experts: 5                  # Number of LoRA experts (E0..E4)
+  dropout: 0.1                  # Dropout after GELU
+  temperature: 1.0              # Softmax temperature
+
+training:
+  epochs: 5                     # Number of oracle pretraining epochs
+  batch_size: 16               # Batch size
+  learning_rate: 1e-4           # Adam learning rate
+  weight_decay: 0.01            # Weight decay
+  lambda_lb: 0.01               # Switch Transformer LB loss coefficient
+
+  # Oracle generation
+  oracle:
+    generate: true              # Whether to generate oracle labels
+    # Strategy: route to expert if base would be wrong, else base
+    # Labels: 0 = base route, 1..5 = expert_0..4 route
+
+  # Output configuration
+  output_dir: checkpoints/router  # Where router .pt checkpoint is saved
+
+  # Load balancing
+  use_load_balancing_loss: true  # Whether to add Switch Transformer aux loss
+  lb_loss_coeff: 0.01            # Coefficient for LB loss in total loss
