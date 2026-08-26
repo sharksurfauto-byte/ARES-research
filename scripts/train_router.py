@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 import torch
 from omegaconf import OmegaConf
 
-from ares import ExpertManager, Router, RouterConfig
+from ares.experts.manager import ExpertManager, Router, RouterConfig
 from ares.data.domain_datasets import load_domain_dataset
 from ares.experts.manager import ExpertManager as EM, Router as RouterModule
 from ares.experts.lora_expert import LoRAExpert, LoRAExpertConfig
