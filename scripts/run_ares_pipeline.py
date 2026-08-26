@@ -120,7 +120,7 @@ def main():
         final_hidden = outputs.hidden_states[-1][:, -1, :] 
         
         # Analyze Reliability
-        domain_logits, feasibility, global_rel = grm(final_hidden)
+        domain_logits, feasibility, global_rel = grm(final_hidden.to(dtype=torch.float32))
         domains = ["general", "math", "code", "science", "reasoning"]
         predicted_domain = domains[domain_logits.argmax().item()]
         
@@ -129,7 +129,7 @@ def main():
         print(f"  Predicted Domain:   {predicted_domain}")
         
         # Route
-        routed_rep, info = expert_manager(final_hidden, return_routing_info=True)
+        routed_rep, info = expert_manager(final_hidden.to(dtype=torch.float32), return_routing_info=True)
         route_names = ["BASE"] + expert_names
         selected_idx = info["selected_experts"].item()
         selected_route = route_names[selected_idx]
