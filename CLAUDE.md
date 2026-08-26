@@ -23,7 +23,7 @@ Essential guidance for ARES Research. Detailed specs in ARES_RESEARCH_PRD.md.
 - Checkpoints at `checkpoints/reliability/grm.pt`, `checkpoints/reliability/lrm.pt`, `checkpoints/grm_pretrained/grm_pretrained.pt`
 - 84 tests pass
 
-**Week 3: IN PROGRESS** (2026-08-26) — Experts & Router
+**Week 3: COMPLETED** (2026-08-26) — Experts & Router
 - `src/ares/experts/lora_expert.py` — LoRAExpertConfig, LoRALayer (A/B low-rank), LoRAExpert (gated multi-adapter)
 - `src/ares/experts/manager.py` — RouterConfig, Router MLP (896→256→6 softmax), ExpertManager (soft routing + load balancing)
 - 5 LoRA experts: E0-general, E1-math, E2-code, E3-science, E4-reasoning (r=16, alpha=32)
