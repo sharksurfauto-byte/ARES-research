@@ -52,7 +52,7 @@ def main():
         use_cache=False, 
         attn_implementation="eager"
     )
-    backbone = load_backbone(backbone_cfg).to(device)
+    backbone = load_backbone(backbone_cfg)
     backbone.eval()
     
     hidden_dim = backbone.hidden_size # 896 for Qwen2.5-0.5B
