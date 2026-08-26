@@ -289,9 +289,9 @@ After all training:
 - [x] Calibration module (temp scaling + isotonic)
 - **Milestone**: GRM and LRM can be trained on representation data; calibration works; self-supervised pretraining functional - **VERIFIED ON KAGGLE**
 
-### Week 3: Experts & Router
-- [ ] 4-5 LoRA experts with domain-specific data
-- [ ] Router network architecture + training (supervised Option A first)
+### Week 3: Experts Week 3: Experts & Router Router ✅ COMPLETED
+- [x] 4-5 LoRA experts with domain-specific data
+- [x] Router network architecture + training (supervised Option A first)
 - [ ] End-to-end ARES pipeline: backbone → representations → GRM/LRM → router → generation
 - [ ] Adaptive computation policies (early-exit logic)
 - **Milestone**: Full ARES pipeline runs end-to-end; can route to base or experts
