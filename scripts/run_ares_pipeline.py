@@ -53,7 +53,7 @@ def main():
         attn_implementation="eager"
     )
     backbone = load_backbone(backbone_cfg)
-    backbone.eval()
+    # backbone eval correctly handled internally
     
     hidden_dim = backbone.hidden_size # 896 for Qwen2.5-0.5B
     
@@ -150,7 +150,7 @@ def main():
         # we demonstrate standard causal generation using the base model for this test.
         # (Implementing deep HF backbone hook-injection for generation is a Phase 5 task).
         
-        out = backbone.generate(
+        out = backbone._model.generate(
             **inputs, 
             max_new_tokens=args.max_new_tokens,
             pad_token_id=tokenizer.eos_token_id
