@@ -88,7 +88,7 @@ checkpoints/
 
 # Model weights and data
 *.model
-data/
+/data/
 datasets/
 *.parquet
 *.arrow
