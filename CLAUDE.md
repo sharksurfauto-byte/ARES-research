@@ -31,6 +31,11 @@ Essential guidance for ARES Research. Detailed specs in ARES_RESEARCH_PRD.md.
 - `tests/test_experts.py` — 40 tests covering shapes, gradients, routing, integration
 - 124 tests pass (84 prior + 40 new)
 
+**Phase 4 & 5: COMPLETED** (2026-08-28) — Full End-to-End ARES Pipeline & Routing Execution
+- `scripts/run_ares_pipeline.py` — Full pipeline connecting Backbone → Representation Collector → GRM/LRM → Router → Selective LoRA Experts → Generation
+- Dynamic text evaluation, domain classification, reliability score, route confidence, and fluent completion verified
+- DDP setup, shape alignment, and tensor safety verified
+
 ## Commands (use daily)
 
 ```bash
