@@ -120,8 +120,9 @@ def evaluate_prediction(prediction: str, target: str, eval_type: str) -> bool:
 def load_gsm8k_samples(n_samples: int = 500, split: str = "train") -> List[BenchmarkSample]:
     """Load GSM8K benchmark samples."""
     samples = []
+    hf_split = f"{split}[:{n_samples * 2}]" if "[:" not in split else split
     try:
-        ds = load_dataset("gsm8k", "main", split=split)
+        ds = load_dataset("gsm8k", "main", split=hf_split)
         for i, item in enumerate(ds):
             if len(samples) >= n_samples:
                 break
@@ -166,8 +167,9 @@ def load_gsm8k_samples(n_samples: int = 500, split: str = "train") -> List[Bench
 def load_mbpp_samples(n_samples: int = 500, split: str = "train") -> List[BenchmarkSample]:
     """Load MBPP benchmark samples."""
     samples = []
+    hf_split = f"{split}[:{n_samples * 2}]" if "[:" not in split else split
     try:
-        ds = load_dataset("mbpp", "default", split=split)
+        ds = load_dataset("mbpp", "default", split=hf_split)
         for i, item in enumerate(ds):
             if len(samples) >= n_samples:
                 break
@@ -210,8 +212,9 @@ def load_mbpp_samples(n_samples: int = 500, split: str = "train") -> List[Benchm
 def load_ai2_arc_samples(n_samples: int = 500, split: str = "train") -> List[BenchmarkSample]:
     """Load AI2-ARC science benchmark samples."""
     samples = []
+    hf_split = f"{split}[:{n_samples * 2}]" if "[:" not in split else split
     try:
-        ds = load_dataset("ai2_arc", "ARC-Challenge", split=split)
+        ds = load_dataset("ai2_arc", "ARC-Challenge", split=hf_split)
         for i, item in enumerate(ds):
             if len(samples) >= n_samples:
                 break
@@ -258,8 +261,9 @@ def load_ai2_arc_samples(n_samples: int = 500, split: str = "train") -> List[Ben
 def load_wikitext_samples(n_samples: int = 500, split: str = "train") -> List[BenchmarkSample]:
     """Load WikiText general text benchmark samples."""
     samples = []
+    hf_split = f"{split}[:{n_samples * 4}]" if "[:" not in split else split
     try:
-        ds = load_dataset("wikitext", "wikitext-103-raw-v1", split=split)
+        ds = load_dataset("wikitext", "wikitext-103-raw-v1", split=hf_split)
         for i, item in enumerate(ds):
             if len(samples) >= n_samples:
                 break
@@ -300,8 +304,9 @@ def load_wikitext_samples(n_samples: int = 500, split: str = "train") -> List[Be
 def load_reasoning_samples(n_samples: int = 500, split: str = "train") -> List[BenchmarkSample]:
     """Load complex reasoning benchmark samples."""
     samples = []
+    hf_split = "validation" if split in ["test", "val", "validation"] else f"{split}[:{n_samples * 2}]"
     try:
-        ds = load_dataset("commonsense_qa", split=split)
+        ds = load_dataset("commonsense_qa", split=hf_split)
         for i, item in enumerate(ds):
             if len(samples) >= n_samples:
                 break

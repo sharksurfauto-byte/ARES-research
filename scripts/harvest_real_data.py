@@ -2,7 +2,7 @@
 """Harvest Real Multi-Domain Representations & Correctness Labels (PRD §4.1).
 
 Harvests representations from real benchmark datasets (GSM8K, MBPP, AI2-ARC, WikiText, CommonsenseQA):
-1. Evaluates Qwen base model on benchmark prompts
+1. Evaluates Qwen base model on benchmark prompts using batched GPU generation
 2. Evaluates model answers against ground-truth targets to get genuine correctness labels
 3. Collects hidden representations from target layers (-1, -6, -12, -24)
 4. Saves structured RepresentationDataset partitions ready for GRM, LRM, and Router training.
@@ -10,7 +10,8 @@ Harvests representations from real benchmark datasets (GSM8K, MBPP, AI2-ARC, Wik
 Usage:
     python scripts/harvest_real_data.py \
         --model_name Qwen/Qwen2.5-0.5B \
-        --samples_per_domain 100 \
+        --samples_per_domain 500 \
+        --batch_size 16 \
         --output_dir representations/multi_domain
 """
 
@@ -27,10 +28,10 @@ from typing import Any, Dict, List
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import torch
+from tqdm import tqdm
 from transformers import AutoTokenizer
 
 from ares import RepresentationCollector, RepresentationDataset, RepresentationSample, load_backbone
-from ares.backbone.config import BackboneConfig
 from ares.data import (
     BenchmarkSample,
     evaluate_prediction,
@@ -49,8 +50,14 @@ def parse_args():
     parser.add_argument(
         "--samples_per_domain",
         type=int,
-        default=100,
-        help="Number of samples to collect per domain",
+        default=500,
+        help="Number of samples to collect per domain (e.g. 500 = 2500 total samples)",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=16,
+        help="Batch size for parallel GPU inference",
     )
     parser.add_argument(
         "--output_dir",
@@ -73,7 +80,7 @@ def parse_args():
     parser.add_argument(
         "--max_new_tokens",
         type=int,
-        default=64,
+        default=48,
         help="Max new tokens to generate for evaluation",
     )
     return parser.parse_args()
@@ -99,10 +106,12 @@ def main():
     logger.info(f"Loading backbone model: {args.model_name}")
     backbone = load_backbone(args.model_name, device=device)
     raw_model = getattr(backbone, "model", getattr(backbone, "_model", backbone))
+    if hasattr(raw_model, "to") and device.type == "cuda":
+        raw_model = raw_model.to(device)
     if hasattr(raw_model, "eval"):
         raw_model.eval()
 
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name, padding_side="left")
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -115,14 +124,17 @@ def main():
     )
 
     # 3. Load Real Benchmark Samples across all 5 domains
-    logger.info(f"Loading benchmark datasets ({args.samples_per_domain} samples per domain)...")
+    n_train = int(args.samples_per_domain * 0.8)
+    n_val = max(10, int(args.samples_per_domain * 0.2))
+    logger.info(f"Loading benchmark datasets (Train: {n_train}/domain, Val: {n_val}/domain)...")
+
     train_domain_samples = load_all_benchmark_samples(
-        n_samples_per_domain=int(args.samples_per_domain * 0.8),
+        n_samples_per_domain=n_train,
         split="train",
     )
     val_domain_samples = load_all_benchmark_samples(
-        n_samples_per_domain=max(10, int(args.samples_per_domain * 0.2)),
-        split="test" if "test" in ["test"] else "train",
+        n_samples_per_domain=n_val,
+        split="val",
     )
 
     def process_samples(
@@ -132,13 +144,20 @@ def main():
         collected_samples: List[RepresentationSample] = []
         domain_stats = {d: {"total": 0, "correct": 0} for d in domain_dict.keys()}
 
-        logger.info(f"Harvesting representations for split: {split_name}...")
+        logger.info(f"Harvesting representations for split: {split_name.upper()}...")
         for domain, samples in domain_dict.items():
-            logger.info(f"  Processing domain: {domain} ({len(samples)} samples)...")
-            for sample in samples:
-                # Tokenize prompt
+            pbar = tqdm(
+                range(0, len(samples), args.batch_size),
+                desc=f"[{split_name.upper()}] {domain:10s}",
+                unit="batch",
+            )
+            for batch_idx in pbar:
+                batch_samples = samples[batch_idx : batch_idx + args.batch_size]
+                prompts = [s.prompt for s in batch_samples]
+
+                # Batched tokenization
                 encoded = tokenizer(
-                    sample.prompt,
+                    prompts,
                     padding=True,
                     truncation=True,
                     max_length=args.max_length,
@@ -148,7 +167,7 @@ def main():
                 input_ids = encoded["input_ids"]
                 attention_mask = encoded["attention_mask"]
 
-                # Generate model answer to evaluate correctness
+                # Batched generation
                 with torch.no_grad():
                     gen_ids = raw_model.generate(
                         input_ids=input_ids,
@@ -157,37 +176,49 @@ def main():
                         do_sample=False,
                         pad_token_id=tokenizer.pad_token_id,
                     )
-                    gen_text = tokenizer.decode(gen_ids[0][input_ids.shape[1]:], skip_special_tokens=True)
+                    
+                    # Evaluate correctness per sample in batch
+                    prompt_len = input_ids.shape[1]
+                    batch_labels = []
+                    for idx, s in enumerate(batch_samples):
+                        gen_text = tokenizer.decode(gen_ids[idx][prompt_len:], skip_special_tokens=True)
+                        is_correct = evaluate_prediction(
+                            prediction=gen_text,
+                            target=s.target_answer,
+                            eval_type=s.eval_type,
+                        )
+                        domain_stats[domain]["total"] += 1
+                        if is_correct:
+                            domain_stats[domain]["correct"] += 1
+                        batch_labels.append(1 if is_correct else 0)
 
-                    # Evaluate real correctness against target ground truth
-                    is_correct = evaluate_prediction(
-                        prediction=gen_text,
-                        target=sample.target_answer,
-                        eval_type=sample.eval_type,
-                    )
-
-                    # Collect representations & logit statistics
+                    # Collect multi-layer representations
+                    labels_tensor = torch.tensor(batch_labels, device=device)
                     pooled, logits, meta_samples = collector.collect(
                         input_ids=input_ids,
                         attention_mask=attention_mask,
-                        labels=torch.tensor([1 if is_correct else 0], device=device),
-                        metadata={"domain": domain, "task": sample.eval_type},
+                        labels=labels_tensor,
+                        metadata={"domain": domain},
                     )
 
-                domain_stats[domain]["total"] += 1
-                if is_correct:
-                    domain_stats[domain]["correct"] += 1
-
-                # Append per-layer representation samples
                 if meta_samples:
                     collected_samples.extend(meta_samples)
 
+                # Update live progress bar with rolling accuracy
+                tot = domain_stats[domain]["total"]
+                cor = domain_stats[domain]["correct"]
+                acc = (cor / tot * 100.0) if tot > 0 else 0.0
+                pbar.set_postfix({"samples": tot, "base_acc": f"{acc:.1f}%"})
+
         # Print domain accuracy summary
-        logger.info(f"--- {split_name.upper()} BASE MODEL ACCURACY SUMMARY ---")
+        print(f"\n{'='*55}")
+        print(f"--- {split_name.upper()} BASE MODEL ACCURACY SUMMARY ---")
+        print(f"{'='*55}")
         for d, stats in domain_stats.items():
             tot = stats["total"]
             acc = (stats["correct"] / tot * 100.0) if tot > 0 else 0.0
-            logger.info(f"  {d:12s}: {acc:5.1f}% Accuracy ({stats['correct']}/{tot})")
+            print(f"  {d:12s}: {acc:5.1f}% Accuracy ({stats['correct']}/{tot})")
+        print(f"{'='*55}\n")
 
         return RepresentationDataset(collected_samples)
 
