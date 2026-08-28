@@ -186,6 +186,15 @@ class QwenBackbone(Backbone):
     def vocab_size(self) -> int:
         return self._model.config.vocab_size
 
+    @property
+    def model(self) -> nn.Module:
+        """Underlying PyTorch model."""
+        return self._model
+
+    def generate(self, *args, **kwargs):
+        """Forward generation directly to underlying model."""
+        return self._model.generate(*args, **kwargs)
+
     def __call__(self, *args, **kwargs):
         """Allow calling the backbone directly."""
         return self.forward(*args, **kwargs)

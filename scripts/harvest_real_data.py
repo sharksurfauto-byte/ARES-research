@@ -98,8 +98,9 @@ def main():
     # 1. Load Backbone Model & Tokenizer
     logger.info(f"Loading backbone model: {args.model_name}")
     backbone = load_backbone(args.model_name, device=device)
-    raw_model = backbone.model
-    raw_model.eval()
+    raw_model = getattr(backbone, "model", getattr(backbone, "_model", backbone))
+    if hasattr(raw_model, "eval"):
+        raw_model.eval()
 
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     if tokenizer.pad_token is None:
