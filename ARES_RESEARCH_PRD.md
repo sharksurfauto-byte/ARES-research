@@ -289,21 +289,24 @@ After all training:
 - [x] Calibration module (temp scaling + isotonic)
 - **Milestone**: GRM and LRM can be trained on representation data; calibration works; self-supervised pretraining functional - **VERIFIED ON KAGGLE**
 
-### Week 3: Experts Week 3: Experts & Router Router ✅ COMPLETED
-- [x] 4-5 LoRA experts with domain-specific data
-- [x] Router network architecture + training (supervised Option A first)
-- [ ] End-to-end ARES pipeline: backbone → representations → GRM/LRM → router → generation
-- [ ] Adaptive computation policies (early-exit logic)
-- **Milestone**: Full ARES pipeline runs end-to-end; can route to base or experts
+### Week 3: Experts & Router ✅ COMPLETED (2026-08-26)
+- [x] 5 LoRA experts (E0-general, E1-math, E2-code, E3-science, E4-reasoning) with r=16, alpha=32
+- [x] Router network architecture (MLP 896→256→6) + Switch Transformer load-balancing loss
+- [x] End-to-end ARES pipeline (`scripts/run_ares_pipeline.py`): backbone → representations → GRM/LRM → router → experts → generation
+- [x] Adaptive computation policies & early-exit routing logic
+- [x] 124 unit tests covering shapes, autograd flow, routing weights, and pipeline integration
+- **Milestone**: Full ARES architecture runs end-to-end; verified dynamic domain evaluation and routing on Kaggle — **VERIFIED ON KAGGLE**
 
-### Week 4: Evaluation & Paper Prep
-- [ ] Baseline implementations (B0-B4)
-- [ ] Full evaluation suite (accuracy, ECE, risk-coverage, expert utilization)
-- [ ] Ablation studies script
-- [ ] Statistical significance testing
-- [ ] Paper figures/tables generation
-- [ ] Human evaluation protocol
-- **Milestone**: Complete evaluation results; paper-ready artifacts generated
+### Week 4: Real Data Harvesting & Empirical Paper Evaluation (In Progress)
+- [x] Benchmark data loaders (`src/ares/data/benchmark_loader.py`) for GSM8K, MBPP, AI2-ARC, WikiText, and CommonsenseQA
+- [x] Ground-truth answer parsing and correctness evaluators (`evaluate_prediction`)
+- [x] Real multi-domain representation harvesting pipeline (`scripts/harvest_real_data.py`)
+- [ ] Retrain GRM/LRM and LoRA experts on real harvested benchmark representations
+- [ ] Train Router MLP on real oracle labels ($y_{\text{oracle}} = \text{Expert if Base wrong, else Base}$)
+- [ ] Baseline implementations & comparison suite (B0–B4)
+- [ ] Full paper evaluation metrics (Accuracy, ECE, Risk-Coverage AURC, 60–70% compute savings)
+- [ ] Statistical significance testing & paper figures/tables generation
+- **Milestone**: Complete empirical evaluation results across all 5 benchmark datasets; paper-ready artifacts generated
 
 ---
 
