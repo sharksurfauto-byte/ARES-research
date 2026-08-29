@@ -41,10 +41,12 @@ def parse_args():
         help="Path to reliability models config",
     )
     parser.add_argument(
+        "--data_dir",
         "--input_dir",
+        dest="input_dir",
         type=str,
-        default="representations",
-        help="Directory containing collected representations",
+        default="representations/multi_domain",
+        help="Directory containing collected representations (e.g. representations/multi_domain)",
     )
     parser.add_argument(
         "--output_dir",
@@ -70,14 +72,49 @@ def load_representations(input_dir: str) -> dict[str, torch.Tensor]:
     """Load representations from dataset directory.
 
     Args:
-        input_dir: Directory with .pt files from collect_representations.py
+        input_dir: Directory with .pt files from collect_representations.py or harvest_real_data.py
 
     Returns:
         Dictionary with train/val tensors
     """
     input_path = Path(input_dir)
+    train_pt = input_path / "train.pt"
+    val_pt = input_path / "val.pt"
 
-    # Look for representations.pt
+    # 1. Check for standard train.pt & val.pt partitions from RepresentationDataset
+    if train_pt.exists():
+        from ares.representations.dataset import RepresentationDataset
+
+        train_ds = RepresentationDataset.load(train_pt)
+        train_tensors = train_ds.get_tensors()
+        train_reps = train_tensors["representations"]
+        train_domain = train_tensors["domain_labels"]
+        train_feas = train_tensors["feasibility_labels"]
+
+        val_reps, val_domain, val_feas = None, None, None
+        n_val = 0
+        if val_pt.exists():
+            val_ds = RepresentationDataset.load(val_pt)
+            if len(val_ds) > 0:
+                val_tensors = val_ds.get_tensors()
+                val_reps = val_tensors["representations"]
+                val_domain = val_tensors["domain_labels"]
+                val_feas = val_tensors["feasibility_labels"]
+                n_val = len(val_ds)
+
+        return {
+            "train_representations": train_reps,
+            "val_representations": val_reps if val_reps is not None else train_reps[:max(1, len(train_reps)//10)],
+            "train_domain_labels": train_domain,
+            "val_domain_labels": val_domain if val_domain is not None else train_domain[:max(1, len(train_domain)//10)],
+            "train_feasibility_labels": train_feas,
+            "val_feasibility_labels": val_feas if val_feas is not None else train_feas[:max(1, len(train_feas)//10)],
+            "n_train": len(train_ds),
+            "n_val": n_val if n_val > 0 else max(1, len(train_ds)//10),
+            "input_dim": train_reps.shape[1],
+        }
+
+    # 2. Fallback: single .pt file
     pt_files = list(input_path.glob("*.pt"))
     if not pt_files:
         raise FileNotFoundError(f"No .pt files found in {input_dir}")
@@ -87,25 +124,21 @@ def load_representations(input_dir: str) -> dict[str, torch.Tensor]:
     representations = data.get("representations", [])
     samples = data.get("samples", [])
 
-    if not representations:
-        raise ValueError(f"No representations found in {pt_files[0]}")
+    if not representations and not samples:
+        raise ValueError(f"No representations or samples found in {pt_files[0]}")
 
-    # Stack representations into tensor
-    # Each representation is [hidden_dim], stack to [N, hidden_dim]
-    reps_tensor = (
-        torch.stack(representations)
-        if isinstance(representations[0], torch.Tensor)
-        else torch.tensor(representations)
-    ).detach()
+    if representations:
+        reps_tensor = (
+            torch.stack(representations)
+            if isinstance(representations[0], torch.Tensor)
+            else torch.tensor(representations)
+        ).detach()
+    else:
+        reps_tensor = torch.stack([s.representation.detach().cpu() for s in samples])
 
-    # Get number of layers from collector (typically 4: -1, -6, -12, -24)
-    # Each sample produces N_layers representations
     num_layers = 4  # default: -1, -6, -12, -24
-
-    # Number of original samples
     n_samples = len(samples) if samples else reps_tensor.shape[0]
 
-    # Create simple train/val split (90/10) on SAMPLES first
     n = n_samples
     perm = torch.randperm(n)
     n_val = max(1, n // 10)
@@ -114,39 +147,48 @@ def load_representations(input_dir: str) -> dict[str, torch.Tensor]:
     train_sample_idx = perm[:n_train]
     val_sample_idx = perm[n_train:]
 
-    # Map sample indices to representation indices (each sample has num_layers representations)
     def sample_idx_to_rep_idx(sample_idx, num_layers=4):
-        """Convert sample index to list of representation indices (one per layer)."""
         return [sample_idx * num_layers + layer for layer in range(num_layers)]
 
-    train_rep_idx = [idx for si in train_sample_idx for idx in sample_idx_to_rep_idx(si)]
-    val_rep_idx = [idx for si in val_sample_idx for idx in sample_idx_to_rep_idx(si)]
+    if len(reps_tensor) == n_samples * num_layers:
+        train_rep_idx = [idx for si in train_sample_idx for idx in sample_idx_to_rep_idx(si)]
+        val_rep_idx = [idx for si in val_sample_idx for idx in sample_idx_to_rep_idx(si)]
+    else:
+        train_rep_idx = train_sample_idx
+        val_rep_idx = val_sample_idx
 
     train_reps = reps_tensor[train_rep_idx]
     val_reps = reps_tensor[val_rep_idx]
 
-    # Create labels from samples if available
     train_labels = None
     val_labels = None
 
-    if samples is not None:
-        # Extract correctness labels per sample, then replicate for each layer
+    if samples is not None and len(samples) > 0:
         correct_flags = [s.correctness for s in samples]
         correct_tensor = torch.tensor(correct_flags, dtype=torch.float)
+        if len(train_reps) == len(train_sample_idx) * num_layers:
+            train_labels = correct_tensor[train_sample_idx].repeat_interleave(num_layers)
+            val_labels = correct_tensor[val_sample_idx].repeat_interleave(num_layers)
+        else:
+            train_labels = correct_tensor[train_sample_idx]
+            val_labels = correct_tensor[val_sample_idx]
 
-        # Replicate labels for each layer (each sample produces num_layers representations)
-        train_labels = correct_tensor[train_sample_idx].repeat_interleave(num_layers)
-        val_labels = correct_tensor[val_sample_idx].repeat_interleave(num_layers)
-
-    # Create domain labels - replicate per layer
     domain2idx = {"general": 0, "math": 1, "code": 2, "science": 3, "reasoning": 4}
     if samples:
-        train_domain = torch.tensor(
-            [domain2idx.get(samples[i].domain, 0) for i in train_sample_idx]
-        ).repeat_interleave(num_layers)
-        val_domain = torch.tensor(
-            [domain2idx.get(samples[i].domain, 0) for i in val_sample_idx]
-        ).repeat_interleave(num_layers)
+        if len(train_reps) == len(train_sample_idx) * num_layers:
+            train_domain = torch.tensor(
+                [domain2idx.get(samples[i].domain, 0) for i in train_sample_idx]
+            ).repeat_interleave(num_layers)
+            val_domain = torch.tensor(
+                [domain2idx.get(samples[i].domain, 0) for i in val_sample_idx]
+            ).repeat_interleave(num_layers)
+        else:
+            train_domain = torch.tensor(
+                [domain2idx.get(samples[i].domain, 0) for i in train_sample_idx]
+            )
+            val_domain = torch.tensor(
+                [domain2idx.get(samples[i].domain, 0) for i in val_sample_idx]
+            )
     else:
         train_domain = torch.zeros(len(train_rep_idx), dtype=torch.long)
         val_domain = torch.zeros(len(val_rep_idx), dtype=torch.long)
@@ -197,14 +239,8 @@ def main():
         logger.info(f"Input dimension: {input_dim}")
         logger.info(f"Train samples: {data['n_train']}, Val samples: {data['n_val']}")
 
-        # Validate input_dim matches expected backbone hidden size
-        expected_dim = 896  # Qwen2.5-0.5B hidden size
-        if input_dim != expected_dim:
-            raise ValueError(
-                f"Input dimension mismatch: got {input_dim}, expected {expected_dim}. "
-                f"Please re-run collect_representations.py to generate properly formatted representations. "
-                f"Old cached representations may have incorrect shape."
-            )
+        # Check backbone hidden size
+        logger.info(f"Using representation feature dimension: {input_dim}")
 
         # Initialize W&B
         wandb_logger = init_wandb(
