@@ -117,16 +117,20 @@ class GRMTrainer:
             # Forward pass
             domain_logits, feasibility, global_rel = self.model(batch_repr)
 
-            # Compute losses with fresh tensors to avoid "backward through graph a second time"
-            domain_loss = self.domain_criterion(domain_logits, batch_domain)
+            # Ensure valid label ranges
+            batch_domain_clamped = torch.clamp(batch_domain.long(), min=0, max=self.model.domain_classes - 1)
+            batch_feas_clamped = torch.clamp(batch_feasibility.float(), min=0.0, max=1.0)
 
-            # Squeeze feasibility with clone to avoid view issues
-            feasibility_squeezed = feasibility.squeeze(-1).clone()
+            # Compute domain classification loss
+            domain_loss = self.domain_criterion(domain_logits, batch_domain_clamped)
+
+            # Squeeze and clamp feasibility to (1e-7, 1-1e-7) to prevent log(0) CUDA device-side assertions
+            feasibility_squeezed = torch.clamp(feasibility.squeeze(-1), min=1e-7, max=1.0 - 1e-7)
             feasibility_loss = self.feasibility_criterion(
-                feasibility_squeezed, batch_feasibility.float()
+                feasibility_squeezed, batch_feas_clamped
             )
 
-            # Combine losses into fresh tensor
+            # Combine losses
             loss = domain_loss + feasibility_loss
 
             # Backward pass
@@ -140,9 +144,9 @@ class GRMTrainer:
 
             # Accuracy
             pred_domain = torch.argmax(domain_logits, dim=-1)
-            correct_domain += (pred_domain == batch_domain).sum().item()
+            correct_domain += (pred_domain == batch_domain_clamped).sum().item()
             correct_feasibility += (
-                ((feasibility.squeeze(-1) > 0.5).float() == batch_feasibility.float()).sum().item()
+                ((feasibility_squeezed > 0.5).float() == batch_feas_clamped).sum().item()
             )
             total_samples += batch_repr.size(0)
 
@@ -259,16 +263,20 @@ class GRMTrainer:
                 batch_domain = domain_labels[start:end].to(self.device)
                 batch_feasibility = feasibility_labels[start:end].to(self.device)
 
+                batch_domain_clamped = torch.clamp(batch_domain.long(), min=0, max=self.model.domain_classes - 1)
+                batch_feas_clamped = torch.clamp(batch_feasibility.float(), min=0.0, max=1.0)
+
                 domain_logits, feasibility, global_rel = self.model(batch_repr)
-                domain_loss = nn.CrossEntropyLoss()(domain_logits, batch_domain)
-                feasibility_loss = nn.BCELoss()(feasibility.squeeze(-1), batch_feasibility.float())
+                domain_loss = nn.CrossEntropyLoss()(domain_logits, batch_domain_clamped)
+                feasibility_squeezed = torch.clamp(feasibility.squeeze(-1), min=1e-7, max=1.0 - 1e-7)
+                feasibility_loss = nn.BCELoss()(feasibility_squeezed, batch_feas_clamped)
                 loss = domain_loss + feasibility_loss
 
                 total_loss += loss.item()
                 pred_domain = torch.argmax(domain_logits, dim=-1)
-                correct_domain += (pred_domain == batch_domain).sum().item()
+                correct_domain += (pred_domain == batch_domain_clamped).sum().item()
                 correct_feasibility += (
-                    ((feasibility.squeeze(-1) > 0.5).float() == batch_feasibility.float())
+                    ((feasibility_squeezed > 0.5).float() == batch_feas_clamped)
                     .sum()
                     .item()
                 )
