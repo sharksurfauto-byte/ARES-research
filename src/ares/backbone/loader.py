@@ -35,15 +35,12 @@ def load_backbone(config_or_name: Any, **kwargs) -> Backbone:
         cfg_dict = {
             "name": config_or_name,
             "revision": kwargs.pop("revision", "main"),
-            "torch_dtype": (
-                "float32"
-                if device_str == "cpu"
-                else ("bfloat16" if "4bit" not in config_or_name else "float16")
-            ),
-            # Use explicit device placement instead of "auto" to avoid
-            # accelerate sharding across multiple devices (cuda:0/cuda:1/cpu).
-            # For 0.5B-1.5B models that fit on a single GPU, this is safer.
-            "device_map": device_str,
+            # Use float16 (not bfloat16) — T4/V100 don't support bf16 natively
+            # and silently upcast to float32, doubling VRAM usage.
+            "torch_dtype": "float32" if device_str == "cpu" else "float16",
+            # device_map=None avoids accelerate dispatch entirely.
+            # We'll .to(device) explicitly after loading.
+            "device_map": None,
             "use_cache": False,
             "attn_implementation": "eager",
             "load_in_4bit": (
@@ -52,16 +49,20 @@ def load_backbone(config_or_name: Any, **kwargs) -> Backbone:
                 else ("7B" in config_or_name and "4bit" in config_or_name)
             ),
             "bnb_4bit_quant_type": "nf4",
-            "bnb_4bit_compute_dtype": "bfloat16",
-            "bnb_4bit_use_double_quant": True,
+            "bnb_4bit_compute_dtype": "float16",
             "use_peft": False,
-            "gradient_checkpointing": True,
+            # Gradient checkpointing is a TRAINING optimization.
+            # Disable by default; scripts that train can enable it explicitly.
+            "gradient_checkpointing": False,
             "hidden_state_layers": (-1, -6, -12, -24),
         }
+        # Allow callers to override (e.g. gradient_checkpointing=True for training)
         cfg_dict.update(kwargs)
-        config = BackboneConfig.from_dict(cfg_dict)
+        config = config_or_name_to_config = BackboneConfig.from_dict(cfg_dict)
+        config._device_str = device_str  # stash for .to() later
     else:
         config = config_or_name
+        config._device_str = getattr(config, "_device_str", None)
 
     logger.info(f"Loading backbone: {config.name}")
 
@@ -106,7 +107,13 @@ def load_backbone(config_or_name: Any, **kwargs) -> Backbone:
     model.config.use_cache = False
     model.config.attn_implementation = "eager"
 
-    # Enable gradient checkpointing for memory efficiency
+    # Move model to target device (needed when device_map=None)
+    target_device = getattr(config, "_device_str", None)
+    if target_device and target_device != "cpu" and config.device_map is None:
+        logger.info(f"Moving model to {target_device}")
+        model = model.to(target_device)
+
+    # Enable gradient checkpointing only if explicitly requested (training)
     if config.gradient_checkpointing:
         model.gradient_checkpointing_enable()
         logger.info("Gradient checkpointing enabled")

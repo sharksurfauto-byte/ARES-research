@@ -16,8 +16,8 @@ class BackboneConfig:
     revision: str = "main"
 
     # Precision and device
-    torch_dtype: str = "bfloat16"
-    device_map: str = "auto"
+    torch_dtype: str = "float16"
+    device_map: str | None = None  # None = load to CPU, then .to(device) explicitly
 
     # Critical flags (PRD §7.4)
     use_cache: bool = False  # Critical for dynamic expert switching
@@ -26,15 +26,15 @@ class BackboneConfig:
     # 4-bit quantization (bitsandbytes NF4)
     load_in_4bit: bool = False
     bnb_4bit_quant_type: str = "nf4"
-    bnb_4bit_compute_dtype: str = "bfloat16"
+    bnb_4bit_compute_dtype: str = "float16"
     bnb_4bit_use_double_quant: bool = True
 
     # LoRA/PEFT (for expert adapters in later weeks)
     use_peft: bool = False
     peft_config: dict[str, Any] | None = None
 
-    # Gradient checkpointing for memory efficiency
-    gradient_checkpointing: bool = True
+    # Gradient checkpointing for memory efficiency (enable only for training)
+    gradient_checkpointing: bool = False
 
     # Hidden state extraction layers (negative = from end)
     hidden_state_layers: tuple = (-1, -6, -12, -24)

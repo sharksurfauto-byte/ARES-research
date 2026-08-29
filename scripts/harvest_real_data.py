@@ -56,8 +56,8 @@ def parse_args():
     parser.add_argument(
         "--batch_size",
         type=int,
-        default=16,
-        help="Batch size for parallel GPU inference",
+        default=4,
+        help="Batch size for parallel GPU inference (4 is safe for T4 16GB)",
     )
     parser.add_argument(
         "--output_dir",
@@ -194,7 +194,7 @@ def main():
                             domain_stats[domain]["correct"] += 1
                         batch_labels.append(1 if is_correct else 0)
 
-                    # Collect multi-layer representations
+                    # Collect multi-layer representations (detach to CPU to save GPU mem)
                     labels_tensor = torch.tensor(batch_labels, device=device)
                     pooled, logits, meta_samples = collector.collect(
                         input_ids=input_ids,
@@ -203,8 +203,21 @@ def main():
                         metadata={"domain": domain},
                     )
 
+                # Move representations to CPU immediately to free GPU memory
                 if meta_samples:
+                    for ms in meta_samples:
+                        ms.representation = ms.representation.cpu()
+                        ms.logits = ms.logits.cpu()
+                        if ms.attention_mask is not None:
+                            ms.attention_mask = ms.attention_mask.cpu()
                     collected_samples.extend(meta_samples)
+
+                # Free GPU memory between batches
+                del encoded, input_ids, attention_mask, gen_ids
+                if pooled:
+                    del pooled
+                del logits, labels_tensor
+                torch.cuda.empty_cache()
 
                 # Update live progress bar with rolling accuracy
                 tot = domain_stats[domain]["total"]
