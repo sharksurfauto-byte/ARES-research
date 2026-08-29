@@ -271,27 +271,40 @@ def main():
             wandb_logger=wandb_logger,
         )
 
+        # Prepare and sanitize tensors
+        train_reps = torch.nan_to_num(data["train_representations"].float().to(device), nan=0.0)
+        train_domain = torch.clamp(data["train_domain_labels"].long().to(device), 0, 4)
+        train_feas = (
+            torch.clamp(data["train_feasibility_labels"].float().to(device), 0.0, 1.0)
+            if data["train_feasibility_labels"] is not None
+            else torch.ones(train_reps.shape[0], device=device)
+        )
+
+        val_reps = (
+            torch.nan_to_num(data["val_representations"].float().to(device), nan=0.0)
+            if data["val_representations"] is not None
+            else None
+        )
+        val_domain = (
+            torch.clamp(data["val_domain_labels"].long().to(device), 0, 4)
+            if data["val_domain_labels"] is not None
+            else None
+        )
+        val_feas = (
+            torch.clamp(data["val_feasibility_labels"].float().to(device), 0.0, 1.0)
+            if data["val_feasibility_labels"] is not None
+            else None
+        )
+
         # Train GRM
         grm_history = grm_trainer.train(
-            representations=data["train_representations"].to(device),
-            domain_labels=data["train_domain_labels"].to(device),
-            feasibility_labels=(
-                data["train_feasibility_labels"].to(device)
-                if data["train_feasibility_labels"] is not None
-                else torch.ones(data["train_representations"].shape[0], device=device)
-            ),
+            representations=train_reps,
+            domain_labels=train_domain,
+            feasibility_labels=train_feas,
             epochs=args.epochs,
-            val_representations=data["val_representations"].to(device),
-            val_domain_labels=(
-                data["val_domain_labels"].to(device)
-                if data["val_domain_labels"] is not None
-                else None
-            ),
-            val_feasibility_labels=(
-                data["val_feasibility_labels"].to(device)
-                if data["val_feasibility_labels"] is not None
-                else None
-            ),
+            val_representations=val_reps,
+            val_domain_labels=val_domain,
+            val_feasibility_labels=val_feas,
         )
 
         # Save GRM checkpoint

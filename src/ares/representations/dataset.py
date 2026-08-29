@@ -96,6 +96,7 @@ class RepresentationDataset(Dataset):
         # Flatten multi-dim representations if stacked as 2D/3D
         if reps.dim() > 2:
             reps = reps.view(reps.size(0), -1)
+        reps = torch.nan_to_num(reps.float(), nan=0.0, posinf=1.0, neginf=-1.0)
 
         # Extract labels
         if self.samples:
@@ -110,9 +111,9 @@ class RepresentationDataset(Dataset):
             feasibility = torch.ones(len(self), dtype=torch.float32)
 
         return {
-            "representations": reps,
-            "domain_labels": domains,
-            "feasibility_labels": feasibility,
+            "representations": reps.float(),
+            "domain_labels": torch.clamp(domains.long(), 0, 4),
+            "feasibility_labels": torch.clamp(feasibility.float(), 0.0, 1.0),
         }
 
     def save(self, path: str | Path) -> str:
