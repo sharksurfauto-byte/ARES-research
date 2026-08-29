@@ -106,10 +106,12 @@ def main():
     logger.info(f"Loading backbone model: {args.model_name}")
     backbone = load_backbone(args.model_name, device=device)
     raw_model = getattr(backbone, "model", getattr(backbone, "_model", backbone))
-    if hasattr(raw_model, "to") and device.type == "cuda":
-        raw_model = raw_model.to(device)
     if hasattr(raw_model, "eval"):
         raw_model.eval()
+    # Disable gradient checkpointing for pure inference (saves overhead)
+    if hasattr(raw_model, "gradient_checkpointing_disable"):
+        raw_model.gradient_checkpointing_disable()
+    logger.info(f"Model device: {next(raw_model.parameters()).device}")
 
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, padding_side="left")
     if tokenizer.pad_token is None:

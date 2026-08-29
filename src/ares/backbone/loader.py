@@ -40,7 +40,10 @@ def load_backbone(config_or_name: Any, **kwargs) -> Backbone:
                 if device_str == "cpu"
                 else ("bfloat16" if "4bit" not in config_or_name else "float16")
             ),
-            "device_map": "cpu" if device_str == "cpu" else "auto",
+            # Use explicit device placement instead of "auto" to avoid
+            # accelerate sharding across multiple devices (cuda:0/cuda:1/cpu).
+            # For 0.5B-1.5B models that fit on a single GPU, this is safer.
+            "device_map": device_str,
             "use_cache": False,
             "attn_implementation": "eager",
             "load_in_4bit": (
