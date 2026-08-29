@@ -76,18 +76,22 @@ class LRM(nn.Module):
         """Forward pass through LRM.
 
         Args:
-            x: Per-token hidden states [batch, seq_len, input_dim]
+            x: Per-token hidden states [batch, seq_len, input_dim], [batch, input_dim], or [input_dim]
 
         Returns:
             Tuple of (correctness_prob, failure_risk)
-            - correctness_prob: [batch, seq_len] — P(correct|H_token)
-            - failure_risk: [batch, seq_len] — 1 - correctness_prob
+            - correctness_prob: [batch, seq_len], [batch], or scalar — P(correct|H_token)
+            - failure_risk: [batch, seq_len], [batch], or scalar — 1 - correctness_prob
         """
-        is_2d = x.dim() == 2
-        if is_2d:
+        orig_dim = x.dim()
+        if orig_dim == 1:
+            x_seq = x.unsqueeze(0).unsqueeze(1)
+        elif orig_dim == 2:
             x_seq = x.unsqueeze(1)
         else:
             x_seq = x
+
+        x_seq = x_seq.float()
 
         # Project to hidden_dim if needed
         if self.input_projection is not None:
@@ -97,13 +101,54 @@ class LRM(nn.Module):
         x_trans = self.transformer(x_seq)  # [batch, seq_len, hidden_dim]
 
         # Output projection for binary classification
-        logits = self.output_head(x_trans).squeeze(-1)  # [batch, seq_len]
+        logits_3d = self.output_head(x_trans)  # [batch, seq_len, 1]
 
-        if is_2d:
-            logits = logits.squeeze(-1)
+        if orig_dim == 1:
+            logits = logits_3d.squeeze(0).squeeze(0).squeeze(-1)
+        elif orig_dim == 2:
+            logits = logits_3d.squeeze(1).squeeze(-1)
+        else:
+            logits = logits_3d.squeeze(-1)
 
         # Sigmoid for probability
         correctness_prob = torch.sigmoid(logits)
         failure_risk = 1.0 - correctness_prob
 
         return correctness_prob, failure_risk
+
+    def forward_logits(
+        self,
+        x: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Forward pass through LRM returning unscaled logits before sigmoid.
+
+        Args:
+            x: Per-token hidden states [batch, seq_len, input_dim] or [batch, input_dim]
+
+        Returns:
+            Tuple of (logits, 1 - sigmoid(logits))
+        """
+        orig_dim = x.dim()
+        if orig_dim == 1:
+            x_seq = x.unsqueeze(0).unsqueeze(1)
+        elif orig_dim == 2:
+            x_seq = x.unsqueeze(1)
+        else:
+            x_seq = x
+
+        x_seq = x_seq.float()
+        if self.input_projection is not None:
+            x_seq = self.input_projection(x_seq)
+
+        x_trans = self.transformer(x_seq)
+        logits_3d = self.output_head(x_trans)
+
+        if orig_dim == 1:
+            logits = logits_3d.squeeze(0).squeeze(0).squeeze(-1)
+        elif orig_dim == 2:
+            logits = logits_3d.squeeze(1).squeeze(-1)
+        else:
+            logits = logits_3d.squeeze(-1)
+
+        failure_risk = 1.0 - torch.sigmoid(logits)
+        return logits, failure_risk

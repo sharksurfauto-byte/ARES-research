@@ -39,7 +39,7 @@ class GRMTrainer:
             config: Training configuration
             wandb_logger: W&B logger instance
         """
-        self.model = model
+        self.model = model.to(device)
         self.device = device
         self.config = config or {}
         self.wandb_logger = wandb_logger
@@ -50,7 +50,7 @@ class GRMTrainer:
 
         # Optimizer
         self.optimizer = torch.optim.Adam(
-            model.parameters(),
+            self.model.parameters(),
             lr=self.config.get("learning_rate", 1e-4),
             weight_decay=self.config.get("weight_decay", 1e-4),
         )
@@ -108,7 +108,7 @@ class GRMTrainer:
         batch_size = self.config.get("batch_size", 32)
         for start in range(0, n, batch_size):
             indices = permutation[start : start + batch_size]
-            batch_repr = representations[indices].to(self.device)
+            batch_repr = torch.nan_to_num(representations[indices].to(self.device).float(), nan=0.0)
             batch_domain = domain_labels[indices].to(self.device)
             batch_feasibility = feasibility_labels[indices].to(self.device)
 
@@ -117,15 +117,19 @@ class GRMTrainer:
             # Forward pass
             domain_logits, feasibility, global_rel = self.model(batch_repr)
 
-            # Ensure valid label ranges
-            batch_domain_clamped = torch.clamp(batch_domain.long(), min=0, max=self.model.domain_classes - 1)
-            batch_feas_clamped = torch.clamp(batch_feasibility.float(), min=0.0, max=1.0)
+            # Ensure valid label ranges and matching 1D shapes
+            batch_domain_clamped = torch.clamp(batch_domain.long().reshape(-1), min=0, max=self.model.domain_classes - 1)
+            batch_feas_clamped = torch.clamp(
+                torch.nan_to_num(batch_feasibility.float().reshape(-1), nan=0.0),
+                min=0.0,
+                max=1.0,
+            )
 
             # Compute domain classification loss
             domain_loss = self.domain_criterion(domain_logits, batch_domain_clamped)
 
             # Squeeze and clamp feasibility to (1e-7, 1-1e-7) to prevent log(0) CUDA device-side assertions
-            feasibility_squeezed = torch.clamp(feasibility.squeeze(-1), min=1e-7, max=1.0 - 1e-7)
+            feasibility_squeezed = torch.clamp(feasibility.reshape(-1), min=1e-7, max=1.0 - 1e-7)
             feasibility_loss = self.feasibility_criterion(
                 feasibility_squeezed, batch_feas_clamped
             )
@@ -146,7 +150,7 @@ class GRMTrainer:
             pred_domain = torch.argmax(domain_logits, dim=-1)
             correct_domain += (pred_domain == batch_domain_clamped).sum().item()
             correct_feasibility += (
-                ((feasibility_squeezed > 0.5).float() == batch_feas_clamped).sum().item()
+                ((feasibility_squeezed > 0.5).float() == (batch_feas_clamped > 0.5).float()).sum().item()
             )
             total_samples += batch_repr.size(0)
 
@@ -250,25 +254,33 @@ class GRMTrainer:
     ) -> dict[str, float]:
         """Validation pass."""
         self.model.eval()
+        total_samples = representations.shape[0]
         total_loss = 0.0
         correct_domain = 0
         correct_feasibility = 0
-        total_samples = representations.shape[0]
+        if domain_labels is None:
+            domain_labels = torch.zeros(total_samples, dtype=torch.long, device=self.device)
+        if feasibility_labels is None:
+            feasibility_labels = torch.ones(total_samples, dtype=torch.float32, device=self.device)
 
         batch_size = 32
         with torch.no_grad():
             for start in range(0, total_samples, batch_size):
                 end = min(start + batch_size, total_samples)
-                batch_repr = representations[start:end].to(self.device)
+                batch_repr = torch.nan_to_num(representations[start:end].to(self.device).float(), nan=0.0)
                 batch_domain = domain_labels[start:end].to(self.device)
                 batch_feasibility = feasibility_labels[start:end].to(self.device)
 
-                batch_domain_clamped = torch.clamp(batch_domain.long(), min=0, max=self.model.domain_classes - 1)
-                batch_feas_clamped = torch.clamp(batch_feasibility.float(), min=0.0, max=1.0)
+                batch_domain_clamped = torch.clamp(batch_domain.long().reshape(-1), min=0, max=self.model.domain_classes - 1)
+                batch_feas_clamped = torch.clamp(
+                    torch.nan_to_num(batch_feasibility.float().reshape(-1), nan=0.0),
+                    min=0.0,
+                    max=1.0,
+                )
 
                 domain_logits, feasibility, global_rel = self.model(batch_repr)
                 domain_loss = nn.CrossEntropyLoss()(domain_logits, batch_domain_clamped)
-                feasibility_squeezed = torch.clamp(feasibility.squeeze(-1), min=1e-7, max=1.0 - 1e-7)
+                feasibility_squeezed = torch.clamp(feasibility.reshape(-1), min=1e-7, max=1.0 - 1e-7)
                 feasibility_loss = nn.BCELoss()(feasibility_squeezed, batch_feas_clamped)
                 loss = domain_loss + feasibility_loss
 
@@ -276,7 +288,7 @@ class GRMTrainer:
                 pred_domain = torch.argmax(domain_logits, dim=-1)
                 correct_domain += (pred_domain == batch_domain_clamped).sum().item()
                 correct_feasibility += (
-                    ((feasibility_squeezed > 0.5).float() == batch_feas_clamped)
+                    ((feasibility_squeezed > 0.5).float() == (batch_feas_clamped > 0.5).float())
                     .sum()
                     .item()
                 )

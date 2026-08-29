@@ -5,7 +5,7 @@ Implements PRD §6 Week 1: Checkpoint system with SHA256 metadata.
 
 import hashlib
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -91,7 +91,7 @@ def save_checkpoint(
         "step": step,
         "metrics": metrics or {},
         "config": config or {},
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
     if optimizer is not None:

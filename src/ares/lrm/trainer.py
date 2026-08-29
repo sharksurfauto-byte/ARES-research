@@ -46,7 +46,7 @@ class LRMTrainer:
 
         # Optimizer
         self.optimizer = torch.optim.Adam(
-            model.parameters(),
+            self.model.parameters(),
             lr=self.config.get("learning_rate", 1e-4),
             weight_decay=self.config.get("weight_decay", 1e-4),
         )
@@ -118,20 +118,26 @@ class LRMTrainer:
             end = min(start + batch_size, flat_size)
             batch_indices = permutation[start:end]
 
-            batch_hidden = flat_hidden[batch_indices].to(self.device)
-            batch_labels = flat_labels[batch_indices].to(self.device)
-            batch_mask = flat_mask[batch_indices].to(self.device)
+            batch_hidden = torch.nan_to_num(flat_hidden[batch_indices].to(self.device).float(), nan=0.0)
+            batch_labels = torch.clamp(
+                torch.nan_to_num(flat_labels[batch_indices].to(self.device).float(), nan=0.0),
+                min=0.0,
+                max=1.0,
+            )
+            batch_mask = torch.clamp(
+                torch.nan_to_num(flat_mask[batch_indices].to(self.device).float(), nan=0.0),
+                min=0.0,
+                max=1.0,
+            )
 
             self.optimizer.zero_grad()
 
             correctness_prob, failure_risk = self.model(batch_hidden)
-            prob_flat = (
-                correctness_prob.squeeze(-1) if correctness_prob.dim() > 1 else correctness_prob
-            )
+            prob_flat = correctness_prob.reshape(-1)
 
             eps = 1e-7
             prob_clamped = prob_flat.clamp(min=eps, max=1.0 - eps)
-            weight = torch.where(batch_labels == 1.0, self.pos_weight, 1.0)
+            weight = batch_labels * self.pos_weight + (1.0 - batch_labels)
             element_loss = -weight * (
                 batch_labels * torch.log(prob_clamped)
                 + (1.0 - batch_labels) * torch.log(1.0 - prob_clamped)
@@ -139,14 +145,14 @@ class LRMTrainer:
             masked_loss = element_loss * batch_mask
             valid_count = batch_mask.sum()
 
-            if valid_count > 0:
+            if valid_count.item() > 0:
                 loss = (masked_loss.sum() / valid_count).clone()
                 loss.backward()
                 self.optimizer.step()
 
                 accumulated_loss += loss.item() * valid_count.item()
                 pred_correct = (prob_flat > 0.5).float()
-                correct_tokens = ((pred_correct == batch_labels) * batch_mask).sum().item()
+                correct_tokens = (((pred_correct == (batch_labels > 0.5).float()) * batch_mask).sum().item())
                 total_correct += correct_tokens
                 total_tokens += valid_count.item()
 
@@ -253,18 +259,24 @@ class LRMTrainer:
             for start in range(0, flat_size, batch_size):
                 end = min(start + batch_size, flat_size)
                 batch_indices = torch.arange(start, end)
-                batch_hidden = flat_hidden[batch_indices].to(self.device)
-                batch_labels = flat_labels[batch_indices].to(self.device)
-                batch_mask = flat_mask[batch_indices].to(self.device)
+                batch_hidden = torch.nan_to_num(flat_hidden[batch_indices].to(self.device).float(), nan=0.0)
+                batch_labels = torch.clamp(
+                    torch.nan_to_num(flat_labels[batch_indices].to(self.device).float(), nan=0.0),
+                    min=0.0,
+                    max=1.0,
+                )
+                batch_mask = torch.clamp(
+                    torch.nan_to_num(flat_mask[batch_indices].to(self.device).float(), nan=0.0),
+                    min=0.0,
+                    max=1.0,
+                )
 
                 correctness_prob, failure_risk = self.model(batch_hidden)
-                prob_flat = (
-                    correctness_prob.squeeze(-1) if correctness_prob.dim() > 1 else correctness_prob
-                )
+                prob_flat = correctness_prob.reshape(-1)
 
                 eps = 1e-7
                 prob_clamped = prob_flat.clamp(min=eps, max=1.0 - eps)
-                weight = torch.where(batch_labels == 1.0, self.pos_weight, 1.0)
+                weight = batch_labels * self.pos_weight + (1.0 - batch_labels)
                 element_loss = -weight * (
                     batch_labels * torch.log(prob_clamped)
                     + (1.0 - batch_labels) * torch.log(1.0 - prob_clamped)
@@ -272,10 +284,10 @@ class LRMTrainer:
                 masked_loss = element_loss * batch_mask
                 valid_count = batch_mask.sum()
 
-                if valid_count > 0:
+                if valid_count.item() > 0:
                     accumulated_loss += masked_loss.sum().item()
                     pred_correct = (prob_flat > 0.5).float()
-                    correct_tokens = ((pred_correct == batch_labels) * batch_mask).sum().item()
+                    correct_tokens = (((pred_correct == (batch_labels > 0.5).float()) * batch_mask).sum().item())
                     total_correct += correct_tokens
                     total_tokens += valid_count.item()
 

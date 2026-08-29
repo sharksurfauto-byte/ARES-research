@@ -34,14 +34,21 @@ class TestGRMArchitecture:
         assert feasibility.shape == (4, 1)
         assert global_rel.shape == (4, 1)
 
-    def test_grm_batch_size_1(self, device):
+    def test_grm_forward_1d(self, device):
         model = GRM(input_dim=16, hidden_dim=32).to(device)
-        x = torch.randn(1, 16, device=device)  # batch size 1
+        x = torch.randn(16, device=device)
         domain_logits, feasibility, global_rel = model(x)
+        assert domain_logits.shape == (5,)
+        assert feasibility.shape == (1,)
+        assert global_rel.shape == (1,)
 
-        assert domain_logits.shape == (1, 5)
-        assert feasibility.shape == (1, 1)
-        assert global_rel.shape == (1, 1)
+    def test_grm_forward_logits(self, device):
+        model = GRM(input_dim=16, hidden_dim=32).to(device)
+        x = torch.randn(3, 16, device=device)
+        d_logits, f_logits, g_logits = model.forward_logits(x)
+        assert d_logits.shape == (3, 5)
+        assert f_logits.shape == (3, 1)
+        assert g_logits.shape == (3, 1)
 
 
 class TestGRMTrainer:

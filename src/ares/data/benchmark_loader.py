@@ -29,7 +29,7 @@ class BenchmarkSample:
     prompt: str
     target_answer: str
     eval_type: str  # "math_numeric", "multiple_choice", "code_snippet", "general_text"
-    metadata: Dict[str, Any] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 # ─── Ground Truth Evaluator ──────────────────────────────────────────────────
@@ -93,7 +93,7 @@ def evaluate_prediction(prediction: str, target: str, eval_type: str) -> bool:
                 return abs(float(pred_num) - float(target_num)) < 1e-4
             except ValueError:
                 return pred_num == target_num
-        return target_clean in pred_clean
+        return (target_num if target_num else target_clean) in pred_clean
 
     elif eval_type == "multiple_choice":
         pred_choice = extract_mcq_answer(pred_clean)

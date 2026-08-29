@@ -16,7 +16,7 @@ class BackboneConfig:
     revision: str = "main"
 
     # Precision and device
-    torch_dtype: str = "float16"
+    torch_dtype: str = "bfloat16"
     device_map: str | None = None  # None = load to CPU, then .to(device) explicitly
 
     # Critical flags (PRD §7.4)

@@ -9,6 +9,8 @@ from typing import Any
 import torch
 import torch.nn as nn
 
+from .isotonic import compute_brier_score, compute_ece
+
 
 class TemperatureScaling(nn.Module):
     """Learnable temperature scaling for probabilistic calibration.
@@ -70,9 +72,9 @@ class TemperatureScaling(nn.Module):
         Returns:
             Dictionary with fitted temperature and metrics
         """
-        # Move to device and detach inputs to avoid backward propagation into model
-        val_logits = val_logits.to(self.device).detach()
-        val_labels = val_labels.to(self.device).float().detach()
+        # Move to device, reshape to 1D, and detach inputs to avoid backward propagation into model
+        val_logits = val_logits.to(self.device).reshape(-1).detach()
+        val_labels = val_labels.to(self.device).float().reshape(-1).detach()
 
         # Enable grad explicitly even if caller is inside torch.no_grad()
         with torch.enable_grad():
@@ -88,10 +90,10 @@ class TemperatureScaling(nn.Module):
 
                 # Apply temperature and compute NLL
                 scaled_logits = self.forward(val_logits)
-                probs = torch.sigmoid(scaled_logits)  # For binary classification
+                probs = torch.sigmoid(scaled_logits).clamp(min=1e-7, max=1.0 - 1e-7)  # For binary classification
                 nll = -(
-                    val_labels * torch.log(probs + 1e-7)
-                    + (1 - val_labels) * torch.log(1 - probs + 1e-7)
+                    val_labels * torch.log(probs)
+                    + (1.0 - val_labels) * torch.log(1.0 - probs)
                 ).mean()
 
                 nll.backward()
@@ -114,37 +116,69 @@ class TemperatureScaling(nn.Module):
     @staticmethod
     def expected_calibration_error(
         probabilities: torch.Tensor,
-        confidence: torch.Tensor,
+        labels: torch.Tensor,
         n_bins: int = 10,
     ) -> float:
         """Compute Expected Calibration Error (ECE).
 
         Args:
-            probabilities: [N] predicted probabilities
-            confidence: [N] observed frequencies in each bin
+            probabilities: [N] predicted probabilities in [0, 1]
+            labels: [N] binary correctness labels (0/1)
             n_bins: Number of bins for ECE computation
 
         Returns:
             ECE value (lower is better)
         """
-        bin_boundaries = torch.linspace(0, 1, n_bins + 1)
+        probabilities = probabilities.detach().reshape(-1)
+        labels = labels.detach().float().reshape(-1).to(probabilities.device)
+
+        bin_boundaries = torch.linspace(0, 1, n_bins + 1, device=probabilities.device)
         bin_lowers = bin_boundaries[:-1]
         bin_uppers = bin_boundaries[1:]
 
-        ece = torch.tensor(0.0)
+        ece = torch.tensor(0.0, device=probabilities.device)
         for i in range(n_bins):
-            # Calculate the fraction of samples in this bin
-            in_bin = (probabilities > bin_lowers[i]) & (probabilities <= bin_uppers[i])
+            # Calculate the fraction of samples in this bin (include 0.0 in first bin)
+            if i == 0:
+                in_bin = (probabilities >= bin_lowers[i]) & (probabilities <= bin_uppers[i])
+            else:
+                in_bin = (probabilities > bin_lowers[i]) & (probabilities <= bin_uppers[i])
             prop_in_bin = in_bin.float().mean()
 
             if prop_in_bin.item() > 0:
                 # Calculate the average confidence and accuracy in this bin
                 avg_confidence_in_bin = probabilities[in_bin].mean()
-                accuracy_in_bin = confidence[in_bin].mean()
+                accuracy_in_bin = labels[in_bin].mean()
                 # Add to ECE
-                ece += prop_in_bin * torch.abs(avg_confidence_in_bin - accuracy_in_bin).item()
+                ece += prop_in_bin * torch.abs(avg_confidence_in_bin - accuracy_in_bin)
 
         return ece.item()
+
+    def calibrate_logits(self, logits: torch.Tensor) -> torch.Tensor:
+        """Calibrate logits by temperature scaling and return calibrated probabilities.
+
+        Args:
+            logits: Uncalibrated logits
+
+        Returns:
+            Calibrated probabilities in [0, 1]
+        """
+        scaled = self.forward(logits.to(self.device))
+        return torch.sigmoid(scaled)
+
+    def calibrate_probabilities(self, probs: torch.Tensor) -> torch.Tensor:
+        """Calibrate probabilities by converting to logits, applying temperature, and taking sigmoid.
+
+        Args:
+            probs: Uncalibrated probabilities in [0, 1]
+
+        Returns:
+            Calibrated probabilities in [0, 1]
+        """
+        probs = probs.to(self.device).clamp(min=1e-6, max=1.0 - 1e-6)
+        logits = torch.logit(probs)
+        scaled = self.forward(logits)
+        return torch.sigmoid(scaled)
 
 
 def fit_temperature_scaling(
@@ -152,18 +186,29 @@ def fit_temperature_scaling(
     labels: torch.Tensor,
     epochs: int = 20,
     lr: float = 0.01,
+    is_probabilities: bool = False,
 ) -> dict[str, Any]:
     """Standalone temperature scaling fit (convenience function).
 
     Args:
-        logits: [N] or [N, 1] logits to calibrate
+        logits: [N] or [N, 1] logits (or probabilities if is_probabilities=True) to calibrate
         labels: [N] binary labels
         epochs: Number of optimization epochs
         lr: Learning rate
+        is_probabilities: Whether input is probabilities in [0, 1] rather than unscaled logits
 
     Returns:
         Dictionary with fitted temperature and metrics
     """
     device = logits.device if isinstance(logits, torch.Tensor) else torch.device("cpu")
+    if not isinstance(logits, torch.Tensor):
+        logits = torch.tensor(logits, dtype=torch.float32, device=device)
+    if not isinstance(labels, torch.Tensor):
+        labels = torch.tensor(labels, dtype=torch.float32, device=device)
+
+    if is_probabilities:
+        logits = torch.logit(logits.clamp(min=1e-6, max=1.0 - 1e-6))
+
     scaler = TemperatureScaling(device=device)
     return scaler.fit(logits, labels, epochs=epochs, lr=lr)
+

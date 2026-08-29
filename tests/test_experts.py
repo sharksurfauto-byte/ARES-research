@@ -360,3 +360,89 @@ class TestIntegration:
         optimizer.step()
 
         assert total_loss.item() > 0
+
+
+class TestPersistenceAndRegistry:
+    def test_lora_expert_config_serialization(self):
+        cfg = LoRAExpertConfig(r=8, lora_alpha=16, expert_name="code", in_features=512, out_features=512)
+        d = cfg.to_dict()
+        assert d["r"] == 8
+        assert d["expert_name"] == "code"
+        loaded = LoRAExpertConfig.from_dict(d)
+        assert loaded.r == 8
+        assert loaded.expert_name == "code"
+
+    def test_lora_expert_checkpoint_save_and_load(self, tmp_path):
+        cfg = LoRAExpertConfig(r=16, lora_alpha=32, expert_name="math", in_features=INPUT_DIM, out_features=INPUT_DIM)
+        expert = LoRAExpert(cfg)
+        save_file = tmp_path / "expert_math.pt"
+        expert.save_checkpoint(save_file, extra_meta={"metric": 0.95})
+        assert save_file.exists()
+
+        loaded_expert = LoRAExpert.load_checkpoint(save_file)
+        assert loaded_expert.expert_name == "math"
+        assert loaded_expert.config.r == 16
+
+        x = torch.randn(2, INPUT_DIM)
+        orig_out = expert(x)
+        loaded_out = loaded_expert(x)
+        assert torch.allclose(orig_out, loaded_out)
+
+    def test_lora_expert_save_pretrained(self, tmp_path):
+        cfg = LoRAExpertConfig(r=16, lora_alpha=32, expert_name="science", in_features=INPUT_DIM, out_features=INPUT_DIM)
+        expert = LoRAExpert(cfg)
+        expert_dir = tmp_path / "science"
+        expert.save_pretrained(expert_dir)
+        assert (expert_dir / "adapter_config.json").exists()
+        assert (expert_dir / "expert_science.pt").exists()
+
+        loaded = LoRAExpert.from_pretrained(expert_dir)
+        assert loaded.expert_name == "science"
+
+    def test_lora_expert_peft_state_dict(self):
+        cfg = LoRAExpertConfig(r=16, lora_alpha=32, expert_name="general", in_features=INPUT_DIM, out_features=INPUT_DIM)
+        expert = LoRAExpert(cfg)
+        peft_dict = expert.to_peft_state_dict()
+        assert any("default" in k for k in peft_dict.keys())
+
+    def test_router_checkpoint_save_load(self, tmp_path):
+        cfg = RouterConfig(input_dim=INPUT_DIM, hidden_dim=256, n_experts=5, dropout=0.0)
+        router = Router(cfg)
+        router.eval()
+        router_file = tmp_path / "router.pt"
+        router.save_checkpoint(router_file)
+        assert router_file.exists()
+
+        loaded_router = Router.load_checkpoint(router_file)
+        loaded_router.eval()
+        x = torch.randn(4, INPUT_DIM)
+        assert torch.allclose(router(x), loaded_router(x))
+
+    def test_expert_manager_save_load_registry(self, tmp_path):
+        manager = ExpertManager(input_dim=INPUT_DIM, hidden_dim=256, n_experts=5)
+        experts_dir = tmp_path / "experts"
+        manager.save_experts(experts_dir)
+        reg_file = manager.save_registry(experts_dir, metadata={"model": "Qwen/Qwen2.5-0.5B"})
+        assert reg_file.exists()
+
+        new_manager = ExpertManager(input_dim=INPUT_DIM, hidden_dim=256, n_experts=5)
+        load_results = new_manager.load_experts(experts_dir)
+        assert all(load_results.values())
+
+    def test_expert_manager_3d_input(self):
+        manager = ExpertManager(input_dim=INPUT_DIM, hidden_dim=256, n_experts=5)
+        x = torch.randn(2, 10, INPUT_DIM)
+        out, info = manager(x, return_routing_info=True)
+        assert out.shape == (2, 10, INPUT_DIM)
+        assert info["routing_probs"].shape == (2, 10, 6)
+        assert info["selected_experts"].shape == (2, 10)
+
+    def test_domain_datasets_loaders(self):
+        from ares.data.domain_datasets import load_domain_dataset
+        for domain in ["general", "math", "code", "science", "reasoning"]:
+            ds = load_domain_dataset(domain, n_samples=10)
+            assert len(ds) >= 1
+            assert "text" in ds.column_names
+            assert "domain" in ds.column_names
+            assert len(ds["text"]) == len(ds)
+

@@ -28,6 +28,7 @@ EXPERT_DATASET_MAP: dict[str, dict[str, str]] = {
     "science": {"hf_name": "ai2_arc", "hf_config": "ARC-Challenge", "split": "train"},
     "reasoning": {"hf_name": "custom_reasoning", "hf_config": None, "split": "train"},
 }
+DOMAIN_CONFIGS = EXPERT_DATASET_MAP
 
 # ─── Fallback Synthetic Generator ──────────────────────────────────────────
 
@@ -79,7 +80,7 @@ class SyntheticDataset:
             ],
         }
 
-    def __getitem__(self, idx: int) -> dict[str, any]:
+    def __getitem__(self, idx: int) -> dict[str, Any]:
         import random
         pattern = random.choice(self.patterns[self.domain])
         return {"text": pattern, "domain": self.domain, "idx": idx}
@@ -107,78 +108,93 @@ def _synthetic_to_dataset(domain: str, n_samples: int) -> Dataset:
 def load_wikitext(n_samples: int = 1000) -> Dataset:
     """Load wikitext-103 for general expert."""
     try:
-        ds = load_dataset("wikitext", "wikitext-103-raw-v1", split="train[:1%]")
-        texts = ds["text"][:n_samples]
-        return Dataset.from_dict({"text": texts, "domain": "general"})
+        ds = load_dataset("wikitext", "wikitext-2-raw-v1", split=f"train[:{n_samples * 4}]")
+        texts = [t.strip() for t in ds["text"] if t.strip()][:n_samples]
+        if len(texts) < n_samples:
+            fallback = _synthetic_to_dataset("general", n_samples - len(texts))
+            texts.extend(fallback["text"])
+        return Dataset.from_dict({"text": texts, "domain": ["general"] * len(texts)})
     except Exception as e:
         print(f"[Wikitext] HF load failed: {e}. Using synthetic fallback.")
-        return SyntheticDataset("general", n_samples)
+        return _synthetic_to_dataset("general", n_samples)
 
 
 def load_gsm8k(n_samples: int = 1000) -> Dataset:
     """Load GSM8K for math expert."""
     try:
-        ds = load_dataset("gsm8k", "main", split="train[:1%]")
-        # Keep only the question portion
+        ds = load_dataset("gsm8k", "main", split=f"train[:{n_samples * 2}]")
+        # Keep question portion
         questions = [q.strip() for q in ds["question"][:n_samples]]
-        return Dataset.from_dict({"text": questions, "domain": "math"})
+        if len(questions) < n_samples:
+            fallback = _synthetic_to_dataset("math", n_samples - len(questions))
+            questions.extend(fallback["text"])
+        return Dataset.from_dict({"text": questions, "domain": ["math"] * len(questions)})
     except Exception as e:
         print(f"[GSM8K] HF load failed: {e}. Using synthetic fallback.")
-        return SyntheticDataset("math", n_samples)
+        return _synthetic_to_dataset("math", n_samples)
 
 
 def load_mbpp(n_samples: int = 1000) -> Dataset:
     """Load MBPP for code expert."""
-    try:
-        ds = load_dataset("mbpp", "default", split="train[:1%]")
-        # MBPP has 'text' field with problem descriptions
-        texts = [ex["problem"][:200] for ex in ds[:n_samples]]  # first 200 chars
-        return Dataset.from_dict({"text": texts, "domain": "code"})
-    except Exception as e:
-        print(f"[MBPP] HF load failed: {e}. Using synthetic fallback.")
-        return SyntheticDataset("code", n_samples)
+    for cfg_name in ["sanitized", "full", "default"]:
+        try:
+            ds = load_dataset("mbpp", cfg_name, split=f"train[:{n_samples * 2}]")
+            col = "text" if "text" in ds.column_names else ("prompt" if "prompt" in ds.column_names else ds.column_names[0])
+            texts = [str(t)[:300] for t in ds[col][:n_samples]]
+            if len(texts) < n_samples:
+                fallback = _synthetic_to_dataset("code", n_samples - len(texts))
+                texts.extend(fallback["text"])
+            return Dataset.from_dict({"text": texts, "domain": ["code"] * len(texts)})
+        except Exception:
+            continue
+    print("[MBPP] HF load failed. Using synthetic fallback.")
+    return _synthetic_to_dataset("code", n_samples)
 
 
 def load_ai2_arc(n_samples: int = 1000) -> Dataset:
     """Load AI2 ARC for science expert."""
     try:
-        # ARC has two splits: Easy and Challenge; we use Challenge
         ds = load_dataset("ai2_arc", "ARC-Challenge", split="train[:1%]")
-        # ARC questions have a 'question' and 'choices' field
+        limit = min(n_samples, len(ds))
         questions = []
-        for ex in ds[:n_samples]:
-            q = ex.get("question", "")
-            choices = ex.get("choices", [])
-            if choices:
-                # Format: question + choices
-                choice_text = " ".join([f"{k}: {v}" for k, v in choices.items()])
-                questions.append(f"{q} {choice_text}")
+        for i in range(limit):
+            row = ds[i]
+            q = row.get("question", "")
+            choices = row.get("choices", {})
+            if choices and isinstance(choices, dict):
+                text_list = choices.get("text", [])
+                label_list = choices.get("label", [])
+                if label_list and text_list:
+                    choice_text = " ".join([f"{l}: {t}" for l, t in zip(label_list, text_list)])
+                    questions.append(f"{q} {choice_text}")
+                else:
+                    questions.append(str(q))
             else:
-                questions.append(q)
-        return Dataset.from_dict({"text": questions[:n_samples], "domain": "science"})
+                questions.append(str(q))
+        return Dataset.from_dict({"text": questions, "domain": ["science"] * len(questions)})
     except Exception as e:
         print(f"[AI2-ARC] HF load failed: {e}. Using synthetic fallback.")
-        return SyntheticDataset("science", n_samples)
+        return _synthetic_to_dataset("science", n_samples)
 
 
 def load_custom_reasoning(n_samples: int = 1000) -> Dataset:
     """Load custom reasoning dataset."""
-    try:
-        # Try a few common reasoning datasets
-        for name in ["commonsense_qa", "piqa", "openbookqa"]:
-            try:
-                ds = load_dataset(name, split="train[:1%]")
-                # Extract question field
-                questions = [ex.get("question", str(ex)) for ex in ds[:n_samples]]
-                return Dataset.from_dict({"text": questions, "domain": "reasoning"})
-            except Exception:
-                continue
-        # If all fail, use synthetic
-        print("[Reasoning] No HF dataset found. Using synthetic fallback.")
-        return SyntheticDataset("reasoning", n_samples)
-    except Exception as e:
-        print(f"[Reasoning] HF load failed: {e}. Using synthetic fallback.")
-        return SyntheticDataset("reasoning", n_samples)
+    for name in ["commonsense_qa", "piqa", "openbookqa"]:
+        try:
+            ds = load_dataset(name, split="train[:1%]")
+            limit = min(n_samples, len(ds))
+            questions = []
+            for i in range(limit):
+                row = ds[i]
+                q = row.get("question", "")
+                if not q and "goal" in row:
+                    q = row["goal"]
+                questions.append(str(q) if q else str(row))
+            return Dataset.from_dict({"text": questions, "domain": ["reasoning"] * len(questions)})
+        except Exception:
+            continue
+    print("[Reasoning] No HF dataset found. Using synthetic fallback.")
+    return _synthetic_to_dataset("reasoning", n_samples)
 
 
 # ─── Loader Registry ────────────────────────────────────────────────────────
@@ -222,7 +238,7 @@ def load_domain_dataset(domain: str, n_samples: int = 500) -> Dataset:
 def get_domain_vocab(domain: str, n_examples: int = 10) -> List[str]:
     """Get a few example texts from a domain for inspection."""
     ds = load_domain_dataset(domain, n_samples=n_examples)
-    return ds["text"][:n_examples].tolist()
+    return list(ds["text"][:n_examples])
 
 
 # ─── Quick Demo ────────────────────────────────────────────────────────.....

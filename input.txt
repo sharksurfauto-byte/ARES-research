@@ -1,35 +1,73 @@
-Here are the recommended next steps and priorities for Week 3:                                                                                                                                                                                     
-  ──────                                                                                                                                                                                                                                             
-  ### Recommended Execution Priority                                                                                                                                                                                                                 
-                                                                                                                                                                                                                                                     
-  #### 1. Create Configuration & Expert Training Script (Highest Priority)                                                                                                                                                                           
-                                                                                                                                                                                                                                                     
-  • **Create expert_mixture.yaml** & scripts/train_experts.py:                                                                                                                                                                                       
-  • Train the 5 LoRA experts (E₀–E₄) independently on domain datasets (wikitext → General, gsm8k → Math, mbpp → Code, ai2_arc → Science, reasoning data → Reasoning).                                                                                
-  • Save trained LoRA weights to checkpoints/experts/{expert_name}.pt.                                                                                                                                                                               
-  ──────                                                                                                                                                                                                                                             
-  #### 2. Create Router Training Script (scripts/train_router.py)                                                                                                                                                                                    
-                                                                                                                                                                                                                                                     
-  • Start with Supervised Option A (Oracle Pretraining) as specified in PRD §4.4.                                                                                                                                                                    
-  • Generate oracle routing targets (                                                                                                                                                                                                                
-                                                                                                                                                                                                                                                     
-    y       = Expert                                                                                                                                                                                                                                 
-     oracle                                                                                                                                                                                                                                          
-                                                                                                                                                                                                                                                     
-  if Base is wrong, else Base).                                                                                                                                                                                                                      
-                                                                                                                                                                                                                                                     
-  • Train the Router MLP with cross-entropy and Switch Transformer load-balancing loss.                                                                                                                                                              
-  ──────                                                                                                                                                                                                                                             
-  #### 3. Build End-to-End Pipeline (scripts/run_ares_pipeline.py)                                                                                                                                                                                   
-                                                                                                                                                                                                                                                     
-  • Wire together the complete ARES pipeline:                                                                                                                                                                                                        
-                                                                                                                                                                                                                                                     
-    Backbone longrightarrow RepresentationCollector longrightarrow GRM / LRM longrightarrow Router longrightarrow Selective LoRA Expert longrightarrow Text Generation                                                                               
-                                                                                                                                                                                                                                                     
-  • Implement adaptive computation policies and early-exit logic based on GRM reliability scores.                                                                                                                                                    
-  ──────                                                                                                                                                                                                                                             
-  #### 4. Download Week 2 Checkpoints from Kaggle                                                                                                                                                                                                    
-                                                                                                                                                                                                                                                     
-  • Download grm.pt, lrm.pt, and grm_pretrained.pt from your Kaggle output directory into checkpoints/reliability/ so the pipeline scripts can load and run end-to-end evaluations.                                                                  
-  ──────                                                                                                                                                                                                                                             
-  ### Immediate Action                                                                                                                                                                      
+Up to this point, we verified the structural plumbing, tensor shapes, gradient flow, and pipeline connectivity. For the research paper, we need real   
+  data, real training on Kaggle GPUs, and empirical evaluation metrics against baselines.                                                                                    
+                                                                                                                                                                             
+  Here is the exact step-by-step roadmap to produce real paper results:                                                                                                      
+  ──────                                                                                                                                                                     
+  ### Step 1: Real Multi-Domain Dataset Harvesting (The Foundation)                                                                                                          
+                                                                                                                                                                             
+  We must harvest real benchmark samples with ground-truth correctness labels (                                                                                              
+                                                                                                                                                                             
+    y     = =y                                                                                                                                                               
+     true     pred                                                                                                                                                           
+                                                                                                                                                                             
+  ) across all 5 domains:                                                                                                                                                    
+                                                                                                                                                                             
+  • General: wikitext-103-raw-v1 / trivia_qa                                                                                                                                 
+  • Math: gsm8k (test & train splits)                                                                                                                                        
+  • Code: mbpp (Mostly Basic Python Problems)                                                                                                                                
+  • Science: ai2_arc (ARC-Challenge)                                                                                                                                         
+  • Reasoning: addsub / gsm-hard                                                                                                                                             
+                                                                                                                                                                             
+  Goal: Extract multi-layer representations (≈10 k training samples + 2 k validation samples per domain) into representations/ containing actual token states, logits,       
+  entropy, and binary correctness flags.                                                                                                                                     
+  ──────                                                                                                                                                                     
+  ### Step 2: Train Calibrated Reliability Probes on Real Data                                                                                                               
+                                                                                                                                                                             
+  Using the harvested multi-domain representations:                                                                                                                          
+                                                                                                                                                                             
+  1. Train GRM: Learn real domain classification (5 classes) and global feasibility on real model failure modes.                                                             
+  2. Train LRM: Learn token-level failure risk and correctness estimation.                                                                                                   
+  3. Calibrate: Fit Temperature Scaling & Isotonic Regression on validation sets to compute real empirical Expected Calibration Error (ECE) and Brier scores.                
+  ──────                                                                                                                                                                     
+  ### Step 3: Train the 5 Domain-Specialized LoRA Experts                                                                                                                    
+                                                                                                                                                                             
+  Train each LoRA adapter (r = 16,α = 32) on its respective domain dataset:                                                                                                  
+                                                                                                                                                                             
+  • E₀: General (wikitext)                                                                                                                                                   
+  • E₁: Math (gsm8k)                                                                                                                                                         
+  • E₂: Code (mbpp)                                                                                                                                                          
+  • E₃: Science (ai2_arc)                                                                                                                                                    
+  • E₄: Reasoning (addsub)                                                                                                                                                   
+                                                                                                                                                                             
+  Goal: Verify that each expert measurably outperforms the base model on its designated domain (H₂ Hypothesis).                                                              
+  ──────                                                                                                                                                                     
+  ### Step 4: Train the Router (Supervised Oracle → Policy Gradient)                                                                                                         
+                                                                                                                                                                             
+  1. Generate Real Oracle Labels:                                                                                                                                            
+                                                                                                                                                                             
+                       ⎧ Expertᵢ,  if Base Model is incorrect on  x                                                                                                          
+    Route Target (x) = ⎩  Base,     if Base Model is correct on  x                                                                                                           
+                                                                                                                                                                             
+  2. Train Router MLP: Train the router on real hidden states to minimize cross-entropy against oracle decisions + Switch Transformer load-balancing loss.                   
+  ──────                                                                                                                                                                     
+  ### Step 5: Run the Full Paper Evaluation Matrix (B0–B4)                                                                                                                   
+                                                                                                                                                                             
+  Run evaluation on held-out test splits across all 5 domains to produce the actual tables and figures for the paper:                                                        
+                                                                                                                                                                             
+  • B0: Base Qwen alone (no experts)                                                                                                                                         
+  • B1: Base Qwen + Confidence threshold (entropy/margin)                                                                                                                    
+  • B2: Base Qwen + GRM only                                                                                                                                                 
+  • B3: Always-on Experts (100% compute overhead)                                                                                                                            
+  • B4 (ARES): Full Adaptive Routing (GRM + LRM + Router + selective LoRA)                                                                                                   
+                                                                                                                                                                             
+  Paper Metrics Output:                                                                                                                                                      
+                                                                                                                                                                             
+  • Accuracy per domain & average accuracy.                                                                                                                                  
+  • Expert utilization rate (proving the 60 -- 70% compute reduction claim).                                                                                                 
+  • ECE calibration scores (before vs. after).                                                                                                                               
+  • Selective Risk-Coverage Curves (AURC).                                                                                                                                   
+  ──────                                                                                                                                                                     
+  ### Recommended Next Action                                                                                                                                                
+                                                                                                                                                                             
+  The immediate first step is to write the end-to-end Data Harvesting & Preparation pipeline (src/ares/data/ & scripts/harvest_real_data.py) so we can fetch the 5           
+  benchmark datasets from Hugging Face and generate the real representations dataset on Kaggle. 

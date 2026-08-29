@@ -137,11 +137,14 @@ class RepresentationDataset(Dataset):
         return str(path)
 
     @classmethod
-    def load(cls, path: str | Path) -> "RepresentationDataset":
+    def load(
+        cls, path: str | Path, map_location: str | torch.device = "cpu"
+    ) -> "RepresentationDataset":
         """Load dataset from .pt file.
 
         Args:
             path: File path to load
+            map_location: Device to map tensors to during load (default: 'cpu')
 
         Returns:
             RepresentationDataset instance
@@ -149,7 +152,7 @@ class RepresentationDataset(Dataset):
         path = Path(path)
         if not path.exists():
             raise FileNotFoundError(f"Representation dataset not found at {path}")
-        data = torch.load(path, weights_only=False)
+        data = torch.load(path, weights_only=False, map_location=map_location)
         return cls(
             samples=data.get("samples", []),
             representations=data.get("representations", []),

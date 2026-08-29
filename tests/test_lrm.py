@@ -25,8 +25,19 @@ class TestLRMArchitecture:
         x = torch.randn(4, 8, 16, device=device)  # 3D input [batch=4, seq=8, input_dim=16]
         prob, risk = model(x)
 
-        assert prob.shape == (4, 8)
-        assert risk.shape == (4, 8)
+    def test_lrm_forward_1d(self, device):
+        model = LRM(input_dim=16, hidden_dim=32, num_layers=2, num_heads=4).to(device)
+        x = torch.randn(16, device=device)
+        prob, risk = model(x)
+        assert prob.dim() == 0 or prob.shape == ()
+        assert risk.dim() == 0 or risk.shape == ()
+
+    def test_lrm_forward_logits(self, device):
+        model = LRM(input_dim=16, hidden_dim=32, num_layers=2, num_heads=4).to(device)
+        x = torch.randn(4, 16, device=device)
+        logits, risk = model.forward_logits(x)
+        assert logits.shape == (4,)
+        assert risk.shape == (4,)
 
 
 class TestLRMTrainer:

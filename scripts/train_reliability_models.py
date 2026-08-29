@@ -9,7 +9,8 @@ Usage:
         --config configs/reliability/reliability_models.yaml \
         --input_dir representations/ \
         --output_dir checkpoints/reliability \
-        --epochs 10
+        --epochs 10 \
+        --calibrate
 """
 
 import argparse
@@ -26,7 +27,10 @@ from omegaconf import OmegaConf
 from ares import GRM, LRM, GRMTrainer, LRMTrainer
 from ares.calibration import (
     TemperatureScaling,
+    apply_isotonic_regression,
+    before_after_calibration,
     compute_ece,
+    fit_isotonic_regression,
     fit_temperature_scaling,
 )
 from ares.utils.wandb_utils import init_wandb, log_metrics
@@ -50,13 +54,17 @@ def parse_args():
     )
     parser.add_argument(
         "--output_dir",
+        "--checkpoint_dir",
+        dest="output_dir",
         type=str,
         default="checkpoints/reliability",
         help="Output directory for checkpoints",
     )
-    parser.add_argument("--epochs", type=int, default=10, help="Number of training epochs")
-    parser.add_argument("--batch_size", type=int, default=32, help="Training batch size")
-    parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
+    parser.add_argument("--epochs", type=int, default=None, help="Number of training epochs")
+    parser.add_argument("--batch_size", type=int, default=None, help="Training batch size")
+    parser.add_argument(
+        "--lr", "--learning_rate", dest="lr", type=float, default=None, help="Learning rate"
+    )
     parser.add_argument(
         "--device", type=str, default="auto", help="Device to use (cuda, cpu, auto)"
     )
@@ -64,6 +72,11 @@ def parse_args():
         "--calibrate",
         action="store_true",
         help="Apply temperature scaling + isotonic calibration after training",
+    )
+    parser.add_argument(
+        "--no_wandb",
+        action="store_true",
+        help="Disable Weights & Biases logging",
     )
     return parser.parse_args()
 
@@ -102,15 +115,17 @@ def load_representations(input_dir: str) -> dict[str, torch.Tensor]:
                 val_feas = val_tensors["feasibility_labels"]
                 n_val = len(val_ds)
 
+        n_train = len(train_ds)
+        val_slice_len = max(1, n_train // 10)
         return {
             "train_representations": train_reps,
-            "val_representations": val_reps if val_reps is not None else train_reps[:max(1, len(train_reps)//10)],
+            "val_representations": val_reps if val_reps is not None else train_reps[:val_slice_len],
             "train_domain_labels": train_domain,
-            "val_domain_labels": val_domain if val_domain is not None else train_domain[:max(1, len(train_domain)//10)],
+            "val_domain_labels": val_domain if val_domain is not None else train_domain[:val_slice_len],
             "train_feasibility_labels": train_feas,
-            "val_feasibility_labels": val_feas if val_feas is not None else train_feas[:max(1, len(train_feas)//10)],
-            "n_train": len(train_ds),
-            "n_val": n_val if n_val > 0 else max(1, len(train_ds)//10),
+            "val_feasibility_labels": val_feas if val_feas is not None else train_feas[:val_slice_len],
+            "n_train": n_train,
+            "n_val": n_val if n_val > 0 else val_slice_len,
             "input_dim": train_reps.shape[1],
         }
 
@@ -121,18 +136,24 @@ def load_representations(input_dir: str) -> dict[str, torch.Tensor]:
 
     data = torch.load(pt_files[0], weights_only=False)
 
-    representations = data.get("representations", [])
-    samples = data.get("samples", [])
+    representations = data.get("representations", None)
+    samples = data.get("samples", None)
 
-    if not representations and not samples:
+    has_reps = representations is not None and (
+        len(representations) > 0 if not isinstance(representations, torch.Tensor) else representations.numel() > 0
+    )
+    has_samples = samples is not None and len(samples) > 0
+
+    if not has_reps and not has_samples:
         raise ValueError(f"No representations or samples found in {pt_files[0]}")
 
-    if representations:
-        reps_tensor = (
-            torch.stack(representations)
-            if isinstance(representations[0], torch.Tensor)
-            else torch.tensor(representations)
-        ).detach()
+    if has_reps:
+        if isinstance(representations, torch.Tensor):
+            reps_tensor = representations.detach()
+        elif isinstance(representations[0], torch.Tensor):
+            reps_tensor = torch.stack(representations).detach()
+        else:
+            reps_tensor = torch.tensor(representations).detach()
     else:
         reps_tensor = torch.stack([s.representation.detach().cpu() for s in samples])
 
@@ -212,14 +233,20 @@ def main():
     # Resolve config path
     config_path = Path(args.config)
     if not config_path.is_absolute():
-        # If config already includes "configs/" prefix, use as-is from project root
         if args.config.startswith("configs/"):
             config_path = Path(__file__).parent.parent / args.config
         else:
             config_path = Path(__file__).parent.parent / "configs" / args.config
 
-    # Load config
-    config_dict = OmegaConf.load(str(config_path))
+    # Load config if file exists, else fallback to empty OmegaConf dict
+    if config_path.exists():
+        config_dict = OmegaConf.load(str(config_path))
+    else:
+        config_dict = OmegaConf.create({})
+
+    # Ensure output directory exists upfront
+    output_path = Path(args.output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
 
     # Set device
     if args.device == "auto":
@@ -238,16 +265,31 @@ def main():
         input_dim = data["input_dim"]
         logger.info(f"Input dimension: {input_dim}")
         logger.info(f"Train samples: {data['n_train']}, Val samples: {data['n_val']}")
-
-        # Check backbone hidden size
         logger.info(f"Using representation feature dimension: {input_dim}")
 
-        # Initialize W&B
-        wandb_logger = init_wandb(
-            config={"reliability": dict(config_dict)},
-            project="ares-research",
-            mode="online" if __import__("sys").platform != "cli" else "online",
-        )
+        # Initialize W&B if enabled
+        wandb_logger = None
+        if not args.no_wandb:
+            wandb_logger = init_wandb(
+                config={"reliability": dict(config_dict)},
+                project="ares-research",
+                run_name="train_reliability_models",
+            )
+
+        # Merge configs with CLI overrides
+        grm_train_cfg = dict(config_dict.get("training", {}).get("grm", {}))
+        lrm_train_cfg = dict(config_dict.get("training", {}).get("lrm", {}))
+
+        epochs = args.epochs if args.epochs is not None else grm_train_cfg.get("epochs", 10)
+        batch_size = args.batch_size if args.batch_size is not None else grm_train_cfg.get("batch_size", 32)
+        lr = args.lr if args.lr is not None else grm_train_cfg.get("learning_rate", 1e-4)
+
+        grm_train_cfg["learning_rate"] = lr
+        grm_train_cfg["batch_size"] = batch_size
+        lrm_train_cfg["learning_rate"] = lr
+        lrm_train_cfg["batch_size"] = batch_size
+
+        should_calibrate = args.calibrate or config_dict.get("calibration", {}).get("enable_calibration", False)
 
         # ========== Train GRM ==========
         logger.info("=" * 50)
@@ -261,19 +303,20 @@ def main():
                 "num_layers": config_dict.get("grm", {}).get("num_layers", 2),
                 "num_heads": config_dict.get("grm", {}).get("num_heads", 4),
                 "dropout": config_dict.get("grm", {}).get("dropout", 0.1),
+                "domain_classes": config_dict.get("grm", {}).get("domain_classes", 5),
             },
         ).to(device)
 
         grm_trainer = GRMTrainer(
             model=grm,
             device=device,
-            config={"learning_rate": args.lr, "batch_size": args.batch_size},
+            config=grm_train_cfg,
             wandb_logger=wandb_logger,
         )
 
         # Prepare and sanitize tensors
         train_reps = torch.nan_to_num(data["train_representations"].float().to(device), nan=0.0)
-        train_domain = torch.clamp(data["train_domain_labels"].long().to(device), 0, 4)
+        train_domain = torch.clamp(data["train_domain_labels"].long().to(device), 0, grm.domain_classes - 1)
         train_feas = (
             torch.clamp(data["train_feasibility_labels"].float().to(device), 0.0, 1.0)
             if data["train_feasibility_labels"] is not None
@@ -286,7 +329,7 @@ def main():
             else None
         )
         val_domain = (
-            torch.clamp(data["val_domain_labels"].long().to(device), 0, 4)
+            torch.clamp(data["val_domain_labels"].long().to(device), 0, grm.domain_classes - 1)
             if data["val_domain_labels"] is not None
             else None
         )
@@ -301,42 +344,68 @@ def main():
             representations=train_reps,
             domain_labels=train_domain,
             feasibility_labels=train_feas,
-            epochs=args.epochs,
+            epochs=epochs,
             val_representations=val_reps,
             val_domain_labels=val_domain,
             val_feasibility_labels=val_feas,
         )
 
         # Save GRM checkpoint
-        grm_path = Path(args.output_dir) / "grm.pt"
-        grm_trainer.save(str(grm_path))
+        grm_path = output_path / "grm.pt"
+        grm_trainer.save(str(grm_path), config=dict(config_dict))
         logger.info(f"GRM checkpoint saved to {grm_path}")
 
         # Calibrate GRM if requested
-        if args.calibrate:
-            logger.info("Calibrating GRM...")
-            # Get validation logits and labels
+        if should_calibrate:
+            logger.info("Calibrating GRM feasibility...")
             grm.eval()
             with torch.no_grad():
-                val_repr = data["val_representations"].to(device)
-                val_domain = data["val_domain_labels"].to(device)
-                val_feas = (
-                    data["val_feasibility_labels"].to(device)
-                    if data["val_feasibility_labels"] is not None
-                    else torch.ones(val_repr.shape[0], device=device)
-                )
+                calib_reps = val_reps if val_reps is not None else train_reps
+                calib_feas = val_feas if val_feas is not None else train_feas
 
-                # Get domain logits
-                domain_logits, feasibility, global_rel = grm(val_repr)
+                _, feas_logits, _ = grm.forward_logits(calib_reps)
+                _, feas_probs, _ = grm(calib_reps)
 
-            # Fit temperature scaling on feasibility
+            # Fit temperature scaling on feasibility logits
             temp_scaler = TemperatureScaling(device=device)
+            temp_epochs = config_dict.get("calibration", {}).get("temp_scaling_epochs", 20)
+            temp_lr = config_dict.get("calibration", {}).get("temp_scaling_lr", 0.01)
             temp_fit = temp_scaler.fit(
-                feasibility,
-                val_feas,
-                epochs=10,
+                feas_logits,
+                calib_feas,
+                epochs=temp_epochs,
+                lr=temp_lr,
             )
-            logger.info(f"GRM temperature: {temp_fit['temperature']:.4f}")
+            logger.info(f"GRM optimal temperature: {temp_fit['temperature']:.4f}")
+
+            # Compute ECE before and after temperature scaling
+            raw_probs_np = feas_probs.squeeze().cpu().numpy()
+            calib_feas_np = calib_feas.squeeze().cpu().numpy()
+            temp_probs_np = temp_scaler.calibrate_logits(feas_logits).squeeze().cpu().numpy()
+
+            ece_raw = compute_ece(raw_probs_np, calib_feas_np)
+            ece_temp = compute_ece(temp_probs_np, calib_feas_np)
+            logger.info(f"GRM ECE raw: {ece_raw:.4f} -> after temperature scaling: {ece_temp:.4f}")
+
+            # Fit isotonic regression
+            ir_model = fit_isotonic_regression(temp_probs_np, calib_feas_np)
+            iso_probs_np = apply_isotonic_regression(temp_probs_np, ir_model)
+            ece_iso = compute_ece(iso_probs_np, calib_feas_np)
+            logger.info(f"GRM ECE after isotonic regression: {ece_iso:.4f} (improvement: {ece_raw - ece_iso:.4f})")
+
+            # Save GRM calibration artifacts
+            grm_calib_path = output_path / "grm_calibration.pt"
+            torch.save(
+                {
+                    "temperature": temp_fit["temperature"],
+                    "isotonic_model": ir_model,
+                    "ece_raw": ece_raw,
+                    "ece_temp": ece_temp,
+                    "ece_isotonic": ece_iso,
+                },
+                grm_calib_path,
+            )
+            logger.info(f"GRM calibration saved to {grm_calib_path}")
 
         # ========== Train LRM ==========
         logger.info("=" * 50)
@@ -354,32 +423,30 @@ def main():
             },
         ).to(device)
 
-        # For LRM, we need token-level data. Create simple token-level dataset
-        # from the collected representations
-        train_hidden = data["train_representations"].to(device)
-        train_labels = (
-            data["train_feasibility_labels"].to(device)
-            if data["train_feasibility_labels"] is not None
-            else torch.ones(train_hidden.shape[0], device=device)
-        )
-
-        # Repeat representations for token-level (simulate per-token hidden states)
-        # In practice, these would come from the actual backbone hidden states
-        seq_len = 32  # Assume fixed sequence length
+        # Token-level representations
+        seq_len = 32
+        train_hidden = train_reps
+        train_labels = train_feas
 
         # Tile hidden states to simulate sequence dimension
         train_hidden_tiled = (
             train_hidden.unsqueeze(1).expand(-1, seq_len, -1).reshape(-1, input_dim)
         )
         train_labels_tiled = train_labels.unsqueeze(1).expand(-1, seq_len).reshape(-1).float()
-
-        # Create attention mask matching tiled tensor size
         train_mask = torch.ones(train_hidden_tiled.shape[0], device=device).float()
+
+        val_hidden_tiled = None
+        val_labels_tiled = None
+        val_mask = None
+        if val_reps is not None and val_feas is not None:
+            val_hidden_tiled = val_reps.unsqueeze(1).expand(-1, seq_len, -1).reshape(-1, input_dim)
+            val_labels_tiled = val_feas.unsqueeze(1).expand(-1, seq_len).reshape(-1).float()
+            val_mask = torch.ones(val_hidden_tiled.shape[0], device=device).float()
 
         lrm_trainer = LRMTrainer(
             model=lrm,
             device=device,
-            config={"learning_rate": args.lr, "batch_size": args.batch_size, "pos_weight": 1.0},
+            config=lrm_train_cfg,
             wandb_logger=wandb_logger,
         )
 
@@ -388,58 +455,63 @@ def main():
             token_hidden_states=train_hidden_tiled,
             correctness_labels=train_labels_tiled,
             attention_mask=train_mask,
-            epochs=args.epochs,
+            epochs=epochs,
+            val_hidden_states=val_hidden_tiled,
+            val_labels=val_labels_tiled,
+            val_mask=val_mask,
         )
 
         # Save LRM checkpoint
-        lrm_path = Path(args.output_dir) / "lrm.pt"
-        lrm_trainer.save(str(lrm_path))
+        lrm_path = output_path / "lrm.pt"
+        lrm_trainer.save(str(lrm_path), config=dict(config_dict))
         logger.info(f"LRM checkpoint saved to {lrm_path}")
 
         # Calibrate LRM if requested
-        if args.calibrate:
+        if should_calibrate:
             logger.info("Calibrating LRM...")
             lrm.eval()
             with torch.no_grad():
-                # Get predictions
-                correctness_prob, failure_risk = lrm(train_hidden.to(device))
+                calib_hidden = val_reps if val_reps is not None else train_reps
+                calib_labels = val_feas if val_feas is not None else train_feas
 
-                # Move to numpy for calibration
-                probs = correctness_prob.squeeze().cpu().numpy()
-                true_labels = train_labels.cpu().numpy()
+                lrm_logits, _ = lrm.forward_logits(calib_hidden)
+                lrm_probs, _ = lrm(calib_hidden)
 
-                # Filter by valid values
-                valid_probs = probs
-                valid_labels = true_labels
+            lrm_temp_scaler = TemperatureScaling(device=device)
+            temp_fit_lrm = lrm_temp_scaler.fit(
+                lrm_logits,
+                calib_labels,
+                epochs=temp_epochs,
+                lr=temp_lr,
+            )
+            logger.info(f"LRM optimal temperature: {temp_fit_lrm['temperature']:.4f}")
 
-                if len(valid_probs) > 0 and len(valid_labels) > 0:
-                    # Fit temperature scaling
-                    temp_fit = fit_temperature_scaling(
-                        torch.tensor(valid_probs, device=device),
-                        torch.tensor(valid_labels, device=device),
-                        epochs=10,
-                    )
-                    logger.info(f"LRM temperature: {temp_fit['temperature']:.4f}")
+            raw_lrm_probs_np = lrm_probs.squeeze().cpu().numpy()
+            calib_labels_np = calib_labels.squeeze().cpu().numpy()
+            temp_lrm_probs_np = lrm_temp_scaler.calibrate_logits(lrm_logits).squeeze().cpu().numpy()
 
-                    # Apply isotonic regression
-                    from ares.calibration.isotonic import (
-                        apply_isotonic_regression,
-                        fit_isotonic_regression,
-                    )
+            ece_lrm_raw = compute_ece(raw_lrm_probs_np, calib_labels_np)
+            ece_lrm_temp = compute_ece(temp_lrm_probs_np, calib_labels_np)
+            logger.info(f"LRM ECE raw: {ece_lrm_raw:.4f} -> after temperature scaling: {ece_lrm_temp:.4f}")
 
-                    ir_model = fit_isotonic_regression(valid_probs, valid_labels)
-                    calibrated_probs = apply_isotonic_regression(valid_probs, ir_model)
+            ir_model_lrm = fit_isotonic_regression(temp_lrm_probs_np, calib_labels_np)
+            iso_lrm_probs_np = apply_isotonic_regression(temp_lrm_probs_np, ir_model_lrm)
+            ece_lrm_iso = compute_ece(iso_lrm_probs_np, calib_labels_np)
+            logger.info(f"LRM ECE after isotonic regression: {ece_lrm_iso:.4f} (improvement: {ece_lrm_raw - ece_lrm_iso:.4f})")
 
-                    # Compute ECE before and after
-                    ece_before = compute_ece(valid_probs, valid_labels)
-                    ece_after = compute_ece(calibrated_probs, valid_labels)
-                    logger.info(f"LRM ECE before calibration: {ece_before:.4f}")
-                    logger.info(f"LRM ECE after calibration: {ece_after:.4f}")
-                    logger.info(f"LRM ECE improvement: {ece_before - ece_after:.4f}")
-
-        # Save final history
-        output_path = Path(args.output_dir)
-        output_path.mkdir(parents=True, exist_ok=True)
+            # Save LRM calibration artifacts
+            lrm_calib_path = output_path / "lrm_calibration.pt"
+            torch.save(
+                {
+                    "temperature": temp_fit_lrm["temperature"],
+                    "isotonic_model": ir_model_lrm,
+                    "ece_raw": ece_lrm_raw,
+                    "ece_temp": ece_lrm_temp,
+                    "ece_isotonic": ece_lrm_iso,
+                },
+                lrm_calib_path,
+            )
+            logger.info(f"LRM calibration saved to {lrm_calib_path}")
 
         # Log final metrics to W&B
         if wandb_logger is not None:
@@ -454,9 +526,12 @@ def main():
             )
 
         logger.info("Reliability models training complete!")
-        print(f"Checkpoints saved to {args.output_dir}/")
+        print(f"\nCheckpoints saved to {args.output_dir}/")
         print("  - grm.pt (Global Reliability Model)")
         print("  - lrm.pt (Local Reliability Model)")
+        if should_calibrate:
+            print("  - grm_calibration.pt (GRM calibration artifacts)")
+            print("  - lrm_calibration.pt (LRM calibration artifacts)")
 
     except Exception as e:
         logger.error(f"Reliability models training failed: {e}")
@@ -468,3 +543,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

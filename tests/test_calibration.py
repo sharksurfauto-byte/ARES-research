@@ -36,6 +36,28 @@ class TestTemperatureScaling:
         results = fit_temperature_scaling(logits, labels, epochs=10)
         assert "temperature" in results
 
+    def test_temperature_scaling_calibrate_helpers(self, device):
+        scaler = TemperatureScaling(device=device)
+        logits = torch.tensor([-2.0, 0.0, 2.0], device=device)
+        labels = torch.tensor([0.0, 1.0, 1.0], device=device)
+        scaler.fit(logits, labels, epochs=5)
+
+        calib_from_logits = scaler.calibrate_logits(logits)
+        assert calib_from_logits.shape == (3,)
+        assert (calib_from_logits >= 0.0).all() and (calib_from_logits <= 1.0).all()
+
+        probs = torch.sigmoid(logits)
+        calib_from_probs = scaler.calibrate_probabilities(probs)
+        assert calib_from_probs.shape == (3,)
+        assert torch.allclose(calib_from_logits, calib_from_probs, atol=1e-3)
+
+    def test_expected_calibration_error_torch(self, device):
+        probs = torch.tensor([0.0, 0.2, 0.5, 0.8, 1.0], device=device)
+        labels = torch.tensor([0.0, 0.0, 1.0, 1.0, 1.0], device=device)
+        ece = TemperatureScaling.expected_calibration_error(probs, labels, n_bins=5)
+        assert isinstance(ece, float)
+        assert ece >= 0.0
+
 
 class TestIsotonicAndMetrics:
     def test_isotonic_fit_apply(self):
@@ -48,9 +70,18 @@ class TestIsotonicAndMetrics:
         assert calibrated.shape == (30,)
         assert np.all(calibrated >= 0.0) and np.all(calibrated <= 1.0)
 
+    def test_isotonic_with_torch_tensors(self, device):
+        scores = torch.rand(20, device=device)
+        labels = torch.randint(0, 2, (20,), device=device).float()
+
+        ir_model = fit_isotonic_regression(scores, labels)
+        calibrated = apply_isotonic_regression(scores, ir_model)
+        assert isinstance(calibrated, np.ndarray)
+        assert calibrated.shape == (20,)
+
     def test_compute_ece(self):
-        probs = np.array([0.9, 0.8, 0.7, 0.6, 0.2, 0.1])
-        labels = np.array([1, 1, 1, 0, 0, 0])
+        probs = np.array([0.0, 0.9, 0.8, 0.7, 0.6, 0.2, 0.1])
+        labels = np.array([0, 1, 1, 1, 0, 0, 0])
 
         ece = compute_ece(probs, labels, n_bins=5)
         assert ece >= 0.0

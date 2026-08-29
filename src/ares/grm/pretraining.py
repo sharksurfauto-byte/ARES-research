@@ -102,7 +102,7 @@ class GRMPretrainer:
         self.wandb_logger = wandb_logger
 
         # Contrastive loss temperature (learnable)
-        self.temperature = nn.Parameter(torch.tensor(config.contrastive.temperature))
+        self.temperature = nn.Parameter(torch.tensor(config.contrastive.temperature, device=device))
 
         # Reconstruction head: reconstructs input_dim from GRM's hidden_dim (CLS token)
         self.recon_head = ReconstructionHead(
@@ -238,43 +238,36 @@ class GRMPretrainer:
         for batch in dataloader:
             # Batch contains list of representations per layer
             # Shape: [num_layers, batch, input_dim]
-            reps_list = batch["representations"].to(self.device)  # [L, B, D]
+            reps_list = torch.nan_to_num(batch["representations"].to(self.device).float(), nan=0.0)  # [L, B, D]
 
             self.optimizer.zero_grad()
 
-            batch_loss = 0.0
+            batch_loss = torch.tensor(0.0, device=self.device)
             batch_contrastive = 0.0
             batch_reconstruction = 0.0
 
-            # For each sample in batch, use different layer pairs as positives
             num_layers = reps_list.shape[0]
-            batch_size = reps_list.shape[1]
 
-            for i in range(batch_size):
-                # Get representations for this sample across all layers
-                sample_reps = reps_list[:, i, :]  # [L, D]
+            for layer_idx in range(num_layers - 1):
+                z1 = reps_list[layer_idx]  # [B, D]
+                z2 = reps_list[layer_idx + 1]  # [B, D]
 
-                # Use adjacent layers as positive pairs
-                for layer_idx in range(num_layers - 1):
-                    z1 = sample_reps[layer_idx : layer_idx + 1]  # [1, D]
-                    z2 = sample_reps[layer_idx + 1 : layer_idx + 2]  # [1, D]
+                # Get CLS tokens from GRM
+                cls1 = self._get_cls_token(z1)
+                cls2 = self._get_cls_token(z2)
 
-                    # Get CLS tokens from GRM
-                    cls1 = self._get_cls_token(z1)
-                    cls2 = self._get_cls_token(z2)
+                # Contrastive loss across batch
+                c_loss = self.contrastive_loss(cls1, cls2)
+                batch_contrastive += c_loss.item()
+                batch_loss = batch_loss + self.config.contrastive.loss_weight * c_loss
 
-                    # Contrastive loss
-                    c_loss = self.contrastive_loss(cls1, cls2)
-                    batch_contrastive += c_loss.item()
-                    batch_loss += self.config.contrastive.loss_weight * c_loss
+                # Reconstruction loss (reconstruct layer representation from CLS)
+                recon1 = self.recon_head(cls1)
+                r_loss = self.reconstruction_loss(z1, recon1)
+                batch_reconstruction += r_loss.item()
+                batch_loss = batch_loss + self.config.reconstruction.loss_weight * r_loss
 
-                    # Reconstruction loss (reconstruct layer representation from CLS)
-                    recon1 = self.recon_head(cls1)
-                    r_loss = self.reconstruction_loss(z1, recon1)
-                    batch_reconstruction += r_loss.item()
-                    batch_loss += self.config.reconstruction.loss_weight * r_loss
-
-            if batch_loss > 0:
+            if batch_loss.item() > 0:
                 batch_loss.backward()
                 torch.nn.utils.clip_grad_norm_(
                     list(self.model.parameters()) + list(self.recon_head.parameters()),
@@ -282,7 +275,7 @@ class GRMPretrainer:
                 )
                 self.optimizer.step()
 
-            total_loss += batch_loss if isinstance(batch_loss, float) else batch_loss.item()
+            total_loss += batch_loss.item()
             total_contrastive += batch_contrastive
             total_reconstruction += batch_reconstruction
             num_batches += 1
@@ -356,31 +349,28 @@ class GRMPretrainer:
 
         with torch.no_grad():
             for batch in dataloader:
-                reps_list = batch["representations"].to(self.device)
+                reps_list = torch.nan_to_num(batch["representations"].to(self.device).float(), nan=0.0)
                 num_layers = reps_list.shape[0]
-                batch_size = reps_list.shape[1]
 
                 batch_loss = 0.0
                 batch_contrastive = 0.0
                 batch_reconstruction = 0.0
 
-                for i in range(batch_size):
-                    sample_reps = reps_list[:, i, :]
-                    for layer_idx in range(num_layers - 1):
-                        z1 = sample_reps[layer_idx : layer_idx + 1]
-                        z2 = sample_reps[layer_idx + 1 : layer_idx + 2]
+                for layer_idx in range(num_layers - 1):
+                    z1 = reps_list[layer_idx]
+                    z2 = reps_list[layer_idx + 1]
 
-                        cls1 = self._get_cls_token(z1)
-                        cls2 = self._get_cls_token(z2)
+                    cls1 = self._get_cls_token(z1)
+                    cls2 = self._get_cls_token(z2)
 
-                        c_loss = self.contrastive_loss(cls1, cls2)
-                        batch_contrastive += c_loss.item()
-                        batch_loss += self.config.contrastive.loss_weight * c_loss
+                    c_loss = self.contrastive_loss(cls1, cls2)
+                    batch_contrastive += c_loss.item()
+                    batch_loss += self.config.contrastive.loss_weight * c_loss.item()
 
-                        recon1 = self.recon_head(cls1)
-                        r_loss = self.reconstruction_loss(z1, recon1)
-                        batch_reconstruction += r_loss.item()
-                        batch_loss += self.config.reconstruction.loss_weight * r_loss
+                    recon1 = self.recon_head(cls1)
+                    r_loss = self.reconstruction_loss(z1, recon1)
+                    batch_reconstruction += r_loss.item()
+                    batch_loss += self.config.reconstruction.loss_weight * r_loss.item()
 
                 total_loss += batch_loss
                 total_contrastive += batch_contrastive

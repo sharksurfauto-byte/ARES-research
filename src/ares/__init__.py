@@ -50,6 +50,24 @@ from .experts import (
 )
 from .grm import GRM, GRMTrainer
 from .lrm import LRM, LRMTrainer
+from .router import (
+    RoutingOutput,
+    RouterLoss,
+    RouterTrainer,
+    SwitchLoadBalancingLoss,
+    generate_oracle_targets,
+)
+from .pipeline import (
+    ARESPipeline,
+    BaselineComparator,
+    BaselineSampleResult,
+    EvaluationReport,
+    MetricsCalculator,
+    PipelineConfig,
+    PipelineResult,
+    ReliabilityMetrics,
+    StrategyMetrics,
+)
 from .representations import (
     CollectorConfig,
     PoolMethod,
@@ -154,13 +172,18 @@ __all__ = [
     # LRM
     "LRM",
     "LRMTrainer",
-    # Experts
+    # Experts & Router
     "LoRAExpert",
     "LoRAExpertConfig",
     "LoRALayer",
     "ExpertManager",
     "Router",
     "ExpertRouterConfig",
+    "RoutingOutput",
+    "RouterLoss",
+    "SwitchLoadBalancingLoss",
+    "RouterTrainer",
+    "generate_oracle_targets",
     # Calibration
     "TemperatureScaling",
     "fit_temperature_scaling",
@@ -169,4 +192,14 @@ __all__ = [
     "before_after_calibration",
     "compute_ece",
     "compute_brier_score",
+    # Pipeline
+    "ARESPipeline",
+    "PipelineConfig",
+    "PipelineResult",
+    "BaselineComparator",
+    "BaselineSampleResult",
+    "MetricsCalculator",
+    "EvaluationReport",
+    "StrategyMetrics",
+    "ReliabilityMetrics",
 ]

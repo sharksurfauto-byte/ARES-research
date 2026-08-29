@@ -265,7 +265,7 @@ class RepresentationCollector:
                     correctness=bool(
                         labels is not None
                         and i < labels.shape[0]
-                        and labels[i].item() == last_pred.item()
+                        and (labels[i].item() == 1 or labels[i].item() == last_pred.item())
                     ),
                     confidence=probs.max().item(),
                     entropy=self._compute_entropy(probs),

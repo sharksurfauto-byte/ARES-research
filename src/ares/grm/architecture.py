@@ -81,7 +81,7 @@ class GRM(nn.Module):
         """Forward pass through GRM.
 
         Args:
-            x: Pooled hidden representation [batch, input_dim]
+            x: Pooled hidden representation [batch, input_dim], [batch, seq_len, input_dim], or [input_dim]
 
         Returns:
             Tuple of (domain_logits, feasibility, global_reliability)
@@ -89,11 +89,16 @@ class GRM(nn.Module):
             - feasibility: [batch, 1] — "is this representation reliable?"
             - global_reliability: [batch, 1]
         """
-        # Ensure 3D input [batch, seq_len, input_dim] for transformer
-        if x.dim() == 2:
+        orig_dim = x.dim()
+        if orig_dim == 1:
+            x_seq = x.unsqueeze(0).unsqueeze(1)
+        elif orig_dim == 2:
             x_seq = x.unsqueeze(1)
         else:
             x_seq = x
+
+        # Ensure float dtype
+        x_seq = x_seq.float()
 
         # Project to hidden_dim if needed
         if self.input_projection is not None:
@@ -112,4 +117,49 @@ class GRM(nn.Module):
         feasibility = torch.sigmoid(self.feasibility_head(cls_token))  # [batch, 1]
         global_reliability = torch.sigmoid(self.global_head(cls_token))  # [batch, 1]
 
+        if orig_dim == 1:
+            domain_logits = domain_logits.squeeze(0)
+            feasibility = feasibility.squeeze(0)
+            global_reliability = global_reliability.squeeze(0)
+
         return domain_logits, feasibility, global_reliability
+
+    def forward_logits(
+        self,
+        x: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Forward pass through GRM returning unscaled logits before sigmoid.
+
+        Args:
+            x: Pooled hidden representation [batch, input_dim]
+
+        Returns:
+            Tuple of (domain_logits, feasibility_logits, global_reliability_logits)
+        """
+        orig_dim = x.dim()
+        if orig_dim == 1:
+            x_seq = x.unsqueeze(0).unsqueeze(1)
+        elif orig_dim == 2:
+            x_seq = x.unsqueeze(1)
+        else:
+            x_seq = x
+
+        x_seq = x_seq.float()
+        if self.input_projection is not None:
+            x_proj = self.input_projection(x_seq)
+        else:
+            x_proj = x_seq
+
+        x_trans = self.transformer(x_proj)
+        cls_token = x_trans[:, 0, :]
+
+        domain_logits = self.domain_head(cls_token)
+        feasibility_logits = self.feasibility_head(cls_token)
+        global_logits = self.global_head(cls_token)
+
+        if orig_dim == 1:
+            domain_logits = domain_logits.squeeze(0)
+            feasibility_logits = feasibility_logits.squeeze(0)
+            global_logits = global_logits.squeeze(0)
+
+        return domain_logits, feasibility_logits, global_logits

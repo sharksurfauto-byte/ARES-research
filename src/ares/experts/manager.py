@@ -1,15 +1,8 @@
-"""Expert Manager with Router (PRD §3.2.5).
-
-Routes input representations to base path or specialized LoRA experts
-using a learned MLP router. Combines expert outputs with routing weights.
-
-Router architecture: Linear(input_dim → 256) → GELU → Dropout → Linear(256 → n_classes) → Softmax
-Classes: {base, expert_0, expert_1, expert_2, expert_3, expert_4}
-"""
-
-from __future__ import annotations
-
-from dataclasses import dataclass, field
+import json
+import os
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -18,65 +11,8 @@ import torch.nn.functional as F
 from .lora_expert import LoRAExpert, LoRAExpertConfig
 
 
-EXPERT_NAMES = ["general", "math", "code", "science", "reasoning"]
+from ..router import EXPERT_NAMES, Router, RouterConfig
 
-
-@dataclass
-class RouterConfig:
-    """Router MLP configuration."""
-
-    input_dim: int = 896
-    hidden_dim: int = 256
-    n_experts: int = 5
-    dropout: float = 0.1
-    temperature: float = 1.0
-    top_k: int = 1
-
-
-class Router(nn.Module):
-    """MLP router that produces routing probabilities over experts.
-
-    Routes to n_experts + 1 classes (base + n_experts).
-    Output is a probability distribution over all routes.
-    """
-
-    def __init__(self, config: RouterConfig):
-        super().__init__()
-        self.config = config
-
-        n_classes = config.n_experts + 1
-
-        self.mlp = nn.Sequential(
-            nn.Linear(config.input_dim, config.hidden_dim),
-            nn.GELU(),
-            nn.Dropout(config.dropout),
-            nn.Linear(config.hidden_dim, n_classes),
-        )
-        self.temperature = config.temperature
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Compute routing probabilities.
-
-        Args:
-            x: Input representation [batch, input_dim]
-
-        Returns:
-            Routing probabilities [batch, n_experts + 1]
-            Index 0 = base, indices 1..n = experts
-        """
-        logits = self.mlp(x)
-        return F.softmax(logits / self.temperature, dim=-1)
-
-    def get_logits(self, x: torch.Tensor) -> torch.Tensor:
-        """Get raw router logits (before softmax).
-
-        Args:
-            x: Input representation [batch, input_dim]
-
-        Returns:
-            Raw logits [batch, n_experts + 1]
-        """
-        return self.mlp(x)
 
 
 class ExpertManager(nn.Module):
@@ -105,7 +41,7 @@ class ExpertManager(nn.Module):
         self.input_dim = input_dim
         self.n_experts = n_experts
         self.top_k = top_k
-        expert_names = expert_names or EXPERT_NAMES[:n_experts]
+        self.expert_names = expert_names or EXPERT_NAMES[:n_experts]
 
         router_cfg = RouterConfig(
             input_dim=input_dim,
@@ -118,7 +54,7 @@ class ExpertManager(nn.Module):
         self.router = Router(router_cfg)
 
         self.experts = nn.ModuleList()
-        for name in expert_names:
+        for name in self.expert_names:
             expert_cfg = LoRAExpertConfig(
                 r=lora_r,
                 lora_alpha=lora_alpha,
@@ -142,23 +78,23 @@ class ExpertManager(nn.Module):
         The base route (index 0) returns x unchanged.
 
         Args:
-            x: Input representation [batch, input_dim]
+            x: Input representation [batch, input_dim] or [batch, seq_len, input_dim]
             return_routing_info: If True, also return routing metadata
 
         Returns:
-            output: Expert-adapted representation [batch, input_dim]
+            output: Expert-adapted representation with same shape as x
             info (optional): Dict with routing_probs, selected_experts, etc.
         """
         routing_probs = self.router(x)
 
-        base_prob = routing_probs[:, 0:1]
-        expert_probs = routing_probs[:, 1:]
+        base_prob = routing_probs[..., 0:1]
+        expert_probs = routing_probs[..., 1:]
 
         output = base_prob * x
 
         for i, expert in enumerate(self.experts):
             expert_out = expert(x)
-            output = output + expert_probs[:, i:i+1] * expert_out
+            output = output + expert_probs[..., i : i + 1] * expert_out
 
         if self._usage_counts is None or self._usage_counts.shape[0] != self.n_experts + 1:
             self._usage_counts = torch.zeros(
@@ -190,19 +126,20 @@ class ExpertManager(nn.Module):
               P_i = mean routing probability for expert i
 
         Args:
-            routing_probs: Router output [batch, n_experts + 1]
+            routing_probs: Router output [..., n_experts + 1]
 
         Returns:
             Scalar load balancing loss
         """
         n_classes = self.n_experts + 1
+        flat_probs = routing_probs.view(-1, n_classes)
 
-        selected = routing_probs.argmax(dim=-1)
+        selected = flat_probs.argmax(dim=-1)
         f = torch.zeros(n_classes, device=routing_probs.device)
         for i in range(n_classes):
             f[i] = (selected == i).float().mean()
 
-        p = routing_probs.mean(dim=0)
+        p = flat_probs.mean(dim=0)
 
         return n_classes * (f * p).sum()
 
@@ -239,3 +176,150 @@ class ExpertManager(nn.Module):
             "experts": expert_params,
             "total": router_params + sum(expert_params.values()),
         }
+
+    def load_expert(
+        self,
+        expert_name_or_idx: Union[str, int],
+        checkpoint_path: Union[str, Path],
+        strict: bool = True,
+    ) -> bool:
+        """Load weights for a single expert from checkpoint.
+
+        Args:
+            expert_name_or_idx: Expert name (e.g. 'math') or integer index (0..n_experts-1)
+            checkpoint_path: Path to .pt checkpoint file
+            strict: Whether to enforce strict key matching
+
+        Returns:
+            True if loaded successfully
+        """
+        path = Path(checkpoint_path)
+        if not path.exists():
+            if strict:
+                raise FileNotFoundError(f"Checkpoint not found: {path}")
+            return False
+
+        if isinstance(expert_name_or_idx, int):
+            idx = expert_name_or_idx
+        else:
+            names = [e.expert_name for e in self.experts]
+            if expert_name_or_idx not in names:
+                if strict:
+                    raise ValueError(f"Unknown expert name '{expert_name_or_idx}'. Available: {names}")
+                return False
+            idx = names.index(expert_name_or_idx)
+
+        checkpoint = torch.load(str(path), map_location=next(self.parameters()).device, weights_only=False)
+        state_dict = checkpoint.get("state_dict", checkpoint.get("model_state_dict", checkpoint))
+        self.experts[idx].load_state_dict(state_dict)
+        return True
+
+    def load_experts(
+        self,
+        experts_dir: Union[str, Path],
+        strict: bool = False,
+    ) -> dict[str, bool]:
+        """Load all available experts from a directory.
+
+        Looks for subdirectories with expert names containing `expert_<name>.pt`.
+
+        Args:
+            experts_dir: Root directory for experts (e.g. checkpoints/experts)
+            strict: Whether to raise error if an expert is missing
+
+        Returns:
+            Dict mapping expert name to load success status
+        """
+        root = Path(experts_dir)
+        results = {}
+        for i, expert in enumerate(self.experts):
+            name = expert.expert_name
+            # Check root / name / expert_name.pt, or root / expert_name.pt
+            cand1 = root / name / f"expert_{name}.pt"
+            cand2 = root / f"expert_{name}.pt"
+            cand3 = root / name / "adapter_model.pt"
+
+            target_path = cand1 if cand1.exists() else (cand2 if cand2.exists() else (cand3 if cand3.exists() else None))
+            if target_path:
+                loaded = self.load_expert(i, target_path, strict=strict)
+                results[name] = loaded
+            else:
+                if strict:
+                    raise FileNotFoundError(f"No checkpoint found for expert '{name}' in {root}")
+                results[name] = False
+        return results
+
+    def save_experts(self, output_dir: Union[str, Path]) -> dict[str, Path]:
+        """Save all experts into output directory.
+
+        Args:
+            output_dir: Output base directory
+
+        Returns:
+            Dict mapping expert name to saved path
+        """
+        out_path = Path(output_dir)
+        out_path.mkdir(parents=True, exist_ok=True)
+        saved = {}
+        for expert in self.experts:
+            exp_dir = out_path / expert.expert_name
+            exp_dir.mkdir(parents=True, exist_ok=True)
+            ckpt_path = exp_dir / f"expert_{expert.expert_name}.pt"
+            expert.save_checkpoint(ckpt_path)
+            saved[expert.expert_name] = ckpt_path
+        return saved
+
+    def save_registry(
+        self,
+        output_dir: Union[str, Path],
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Path:
+        """Save registry.json describing all experts.
+
+        Args:
+            output_dir: Output directory
+            metadata: Optional additional metadata
+
+        Returns:
+            Path to registry.json
+        """
+        out_path = Path(output_dir)
+        out_path.mkdir(parents=True, exist_ok=True)
+        registry_data = {
+            "input_dim": self.input_dim,
+            "n_experts": self.n_experts,
+            "expert_names": [e.expert_name for e in self.experts],
+            "experts": {
+                e.expert_name: {
+                    "r": e.config.r,
+                    "lora_alpha": e.config.lora_alpha,
+                    "lora_dropout": e.config.lora_dropout,
+                    "in_features": e.config.in_features,
+                    "out_features": e.config.out_features,
+                    "target_modules": e.config.target_modules,
+                    "path": f"{e.expert_name}/expert_{e.expert_name}.pt",
+                }
+                for e in self.experts
+            },
+        }
+        if metadata:
+            registry_data["metadata"] = metadata
+
+        reg_file = out_path / "registry.json"
+        with open(reg_file, "w", encoding="utf-8") as f:
+            json.dump(registry_data, f, indent=2)
+        return reg_file
+
+    def save_router(self, save_path: Union[str, Path]) -> Path:
+        """Save the router weights."""
+        return self.router.save_checkpoint(save_path)
+
+    def load_router(self, load_path: Union[str, Path]) -> bool:
+        """Load router weights."""
+        path = Path(load_path)
+        if not path.exists():
+            return False
+        checkpoint = torch.load(str(path), map_location=next(self.parameters()).device, weights_only=False)
+        state_dict = checkpoint.get("router_state_dict", checkpoint.get("state_dict", checkpoint))
+        self.router.load_state_dict(state_dict)
+        return True
