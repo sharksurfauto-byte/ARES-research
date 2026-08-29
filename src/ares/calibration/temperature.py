@@ -163,8 +163,9 @@ class TemperatureScaling(nn.Module):
         Returns:
             Calibrated probabilities in [0, 1]
         """
-        scaled = self.forward(logits.to(self.device))
-        return torch.sigmoid(scaled)
+        with torch.no_grad():
+            scaled = self.forward(logits.to(self.device))
+            return torch.sigmoid(scaled).detach()
 
     def calibrate_probabilities(self, probs: torch.Tensor) -> torch.Tensor:
         """Calibrate probabilities by converting to logits, applying temperature, and taking sigmoid.
@@ -175,10 +176,11 @@ class TemperatureScaling(nn.Module):
         Returns:
             Calibrated probabilities in [0, 1]
         """
-        probs = probs.to(self.device).clamp(min=1e-6, max=1.0 - 1e-6)
-        logits = torch.logit(probs)
-        scaled = self.forward(logits)
-        return torch.sigmoid(scaled)
+        with torch.no_grad():
+            probs = probs.to(self.device).clamp(min=1e-6, max=1.0 - 1e-6)
+            logits = torch.logit(probs)
+            scaled = self.forward(logits)
+            return torch.sigmoid(scaled).detach()
 
 
 def fit_temperature_scaling(

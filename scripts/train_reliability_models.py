@@ -214,6 +214,10 @@ def load_representations(input_dir: str) -> dict[str, torch.Tensor]:
         train_domain = torch.zeros(len(train_rep_idx), dtype=torch.long)
         val_domain = torch.zeros(len(val_rep_idx), dtype=torch.long)
 
+    if train_labels is None:
+        train_labels = torch.ones(len(train_rep_idx), dtype=torch.float32)
+        val_labels = torch.ones(len(val_rep_idx), dtype=torch.float32)
+
     return {
         "train_representations": train_reps,
         "val_representations": val_reps,
@@ -221,9 +225,9 @@ def load_representations(input_dir: str) -> dict[str, torch.Tensor]:
         "val_domain_labels": val_domain,
         "train_feasibility_labels": train_labels,
         "val_feasibility_labels": val_labels,
-        "n_train": n_train,
-        "n_val": n_val,
-        "input_dim": reps_tensor.shape[1],
+        "input_dim": reps_tensor.shape[-1],
+        "n_train": len(train_rep_idx),
+        "n_val": len(val_rep_idx),
     }
 
 
@@ -379,9 +383,9 @@ def main():
             logger.info(f"GRM optimal temperature: {temp_fit['temperature']:.4f}")
 
             # Compute ECE before and after temperature scaling
-            raw_probs_np = feas_probs.squeeze().cpu().numpy()
-            calib_feas_np = calib_feas.squeeze().cpu().numpy()
-            temp_probs_np = temp_scaler.calibrate_logits(feas_logits).squeeze().cpu().numpy()
+            raw_probs_np = feas_probs.squeeze().detach().cpu().numpy()
+            calib_feas_np = calib_feas.squeeze().detach().cpu().numpy()
+            temp_probs_np = temp_scaler.calibrate_logits(feas_logits).squeeze().detach().cpu().numpy()
 
             ece_raw = compute_ece(raw_probs_np, calib_feas_np)
             ece_temp = compute_ece(temp_probs_np, calib_feas_np)
@@ -486,9 +490,9 @@ def main():
             )
             logger.info(f"LRM optimal temperature: {temp_fit_lrm['temperature']:.4f}")
 
-            raw_lrm_probs_np = lrm_probs.squeeze().cpu().numpy()
-            calib_labels_np = calib_labels.squeeze().cpu().numpy()
-            temp_lrm_probs_np = lrm_temp_scaler.calibrate_logits(lrm_logits).squeeze().cpu().numpy()
+            raw_lrm_probs_np = lrm_probs.squeeze().detach().cpu().numpy()
+            calib_labels_np = calib_labels.squeeze().detach().cpu().numpy()
+            temp_lrm_probs_np = lrm_temp_scaler.calibrate_logits(lrm_logits).squeeze().detach().cpu().numpy()
 
             ece_lrm_raw = compute_ece(raw_lrm_probs_np, calib_labels_np)
             ece_lrm_temp = compute_ece(temp_lrm_probs_np, calib_labels_np)
