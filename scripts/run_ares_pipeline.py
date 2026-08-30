@@ -65,7 +65,14 @@ def parse_args():
 
     # Model & Checkpoint Configurations
     parser.add_argument("--model_name", type=str, default="Qwen/Qwen2.5-0.5B", help="Backbone model name or path")
-    parser.add_argument("--checkpoints_dir", type=str, default="checkpoints", help="Directory containing module checkpoints")
+    parser.add_argument(
+        "--checkpoints_dir",
+        "--expert_dir",
+        dest="checkpoints_dir",
+        type=str,
+        default="checkpoints",
+        help="Directory containing module checkpoints",
+    )
     parser.add_argument("--grm_checkpoint", type=str, default=None, help="Explicit path to GRM checkpoint (overrides default)")
     parser.add_argument("--lrm_checkpoint", type=str, default=None, help="Explicit path to LRM checkpoint (overrides default)")
     parser.add_argument("--router_checkpoint", type=str, default=None, help="Explicit path to Router checkpoint (overrides default)")
@@ -90,7 +97,14 @@ def parse_args():
     parser.add_argument("--do_sample", action="store_true", help="Enable sampling during generation")
 
     # Benchmark & Reporting Parameters
-    parser.add_argument("--n_samples_per_domain", type=int, default=10, help="Number of benchmark samples per domain")
+    parser.add_argument(
+        "--n_samples_per_domain",
+        "--samples_per_domain",
+        dest="n_samples_per_domain",
+        type=int,
+        default=10,
+        help="Number of benchmark samples per domain",
+    )
     parser.add_argument("--output_report", type=str, default=None, help="Filepath to save generated Markdown report")
     parser.add_argument("--output_json", type=str, default=None, help="Filepath to save JSON metrics report")
 

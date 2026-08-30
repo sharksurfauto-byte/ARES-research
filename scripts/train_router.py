@@ -142,6 +142,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--expert_checkpoints_dir",
+        "--expert_dir",
+        dest="expert_checkpoints_dir",
         type=str,
         default="checkpoints/experts",
         help="Directory with trained expert checkpoints",
@@ -182,6 +184,11 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="Optional max number of representation samples to train on",
+    )
+    parser.add_argument(
+        "--no_wandb",
+        action="store_true",
+        help="Disable Weights & Biases logging",
     )
     return parser.parse_args()
 

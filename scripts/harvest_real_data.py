@@ -51,7 +51,19 @@ def parse_args():
         "--samples_per_domain",
         type=int,
         default=500,
-        help="Number of samples to collect per domain (e.g. 500 = 2500 total samples)",
+        help="Total number of samples to collect per domain (e.g. 500 = 2500 total samples)",
+    )
+    parser.add_argument(
+        "--train_samples_per_domain",
+        type=int,
+        default=None,
+        help="Explicit number of training samples to collect per domain (e.g. 400)",
+    )
+    parser.add_argument(
+        "--val_samples_per_domain",
+        type=int,
+        default=None,
+        help="Explicit number of validation samples to collect per domain (e.g. 100)",
     )
     parser.add_argument(
         "--batch_size",
@@ -73,6 +85,8 @@ def parse_args():
     )
     parser.add_argument(
         "--max_length",
+        "--max_seq_len",
+        dest="max_length",
         type=int,
         default=256,
         help="Max sequence length for tokenization",
@@ -126,8 +140,16 @@ def main():
     )
 
     # 3. Load Real Benchmark Samples across all 5 domains
-    n_train = int(args.samples_per_domain * 0.8)
-    n_val = max(10, int(args.samples_per_domain * 0.2))
+    if args.train_samples_per_domain is not None:
+        n_train = args.train_samples_per_domain
+    else:
+        n_train = int(args.samples_per_domain * 0.8)
+
+    if args.val_samples_per_domain is not None:
+        n_val = args.val_samples_per_domain
+    else:
+        n_val = max(10, int(args.samples_per_domain * 0.2))
+
     logger.info(f"Loading benchmark datasets (Train: {n_train}/domain, Val: {n_val}/domain)...")
 
     train_domain_samples = load_all_benchmark_samples(

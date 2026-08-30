@@ -133,6 +133,11 @@ def parse_args():
         default="checkpoints/experts",
         help="Output dir for expert weights and registry",
     )
+    parser.add_argument(
+        "--no_wandb",
+        action="store_true",
+        help="Disable Weights & Biases logging",
+    )
     return parser.parse_args()
 
 
