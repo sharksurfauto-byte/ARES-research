@@ -203,6 +203,36 @@ class ARESPipeline:
                     except Exception as e:
                         print(f"Warning: Failed to load Expert {name} checkpoint: {e}")
 
+        # 5. Load Native HuggingFace PEFT Multi-Adapters
+        self.peft_model = None
+        raw_model = getattr(self.backbone, "_model", getattr(self.backbone, "model", self.backbone))
+        try:
+            from peft import PeftModel
+            first_loaded = False
+            for name in self.expert_names:
+                exp_dir = ckpt_dir / "experts" / name
+                if not exp_dir.exists():
+                    exp_dir = ckpt_dir / name
+
+                if exp_dir.exists() and (exp_dir / "adapter_config.json").exists():
+                    try:
+                        if not first_loaded:
+                            self.peft_model = PeftModel.from_pretrained(
+                                raw_model,
+                                str(exp_dir),
+                                adapter_name=name,
+                            )
+                            first_loaded = True
+                        else:
+                            self.peft_model.load_adapter(str(exp_dir), adapter_name=name)
+                    except Exception as err:
+                        print(f"[ARES Pipeline] Note: Could not attach PEFT adapter '{name}': {err}")
+
+            if self.peft_model is not None:
+                print(f"[ARES Pipeline] PEFT multi-adapters active: {list(self.peft_model.peft_config.keys())}")
+        except Exception as e:
+            print(f"[ARES Pipeline] Note: PEFT multi-adapter initialization: {e}")
+
     def evaluate_reliability(
         self,
         hidden_states: torch.Tensor,
@@ -377,9 +407,9 @@ class ARESPipeline:
         )
         timing["router_ms"] = (time.perf_counter() - t0) * 1000.0
 
-        # ─── 5. Text Generation (Base vs LoRA Expert Hook) ───────────────────
+        # ─── 5. Text Generation (Native PEFT Adapter vs Base Model) ───────────
         t0 = time.perf_counter()
-        model = getattr(self.backbone, "_model", self.backbone)
+        raw_model = getattr(self.backbone, "_model", getattr(self.backbone, "model", self.backbone))
 
         gen_kwargs: Dict[str, Any] = {
             "max_new_tokens": max_new_tokens,
@@ -390,19 +420,20 @@ class ARESPipeline:
             gen_kwargs["temperature"] = temperature
             gen_kwargs["top_p"] = top_p
 
-        hook_handle = None
-        if route_idx > 0:
-            expert = self.expert_manager.experts[route_idx - 1]
-            target_layer = self._get_generation_target_layer()
-            if target_layer is not None:
-                hook_handle = target_layer.register_forward_hook(self._make_expert_hook(expert))
-
-        try:
-            with torch.no_grad():
-                gen_output = model.generate(**inputs, **gen_kwargs)
-        finally:
-            if hook_handle is not None:
-                hook_handle.remove()
+        with torch.no_grad():
+            if (
+                self.peft_model is not None
+                and route_idx > 0
+                and selected_route in getattr(self.peft_model, "peft_config", {})
+            ):
+                self.peft_model.set_adapter(selected_route)
+                gen_output = self.peft_model.generate(**inputs, **gen_kwargs)
+            elif self.peft_model is not None:
+                # Base model route: disable adapter
+                with self.peft_model.disable_adapter():
+                    gen_output = self.peft_model.generate(**inputs, **gen_kwargs)
+            else:
+                gen_output = raw_model.generate(**inputs, **gen_kwargs)
 
         timing["generation_ms"] = (time.perf_counter() - t0) * 1000.0
         timing["total_ms"] = (time.perf_counter() - total_start) * 1000.0

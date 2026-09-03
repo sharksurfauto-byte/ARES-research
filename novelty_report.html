@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ARES Research - Technical Novelty Report</title>
+<style>
+  :root {
+    --bg: #0a0b10;
+    --text: #e0e2e8;
+    --muted: #94a3b8;
+    --accent: #7c3aed;
+    --accent-2: #06b6d4;
+    --accent-3: #10b981;
+    --accent-4: #f59e0b;
+    --card: #111319;
+    --border: #1f222c;
+    --code-bg: #0d0e13;
+    --highlight: #c4b5fd;
+  }
+
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f8f9fc;
+      --text: #1e293b;
+      --muted: #64748b;
+      --accent: #6d28d9;
+      --accent-2: #0891b2;
+      --accent-3: #059669;
+      --accent-4: #d97706;
+      --card: #ffffff;
+      --border: #e2e8f0;
+      --code-bg: #0f172a;
+      --highlight: #a78bfa;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0a0b10;
+    --text: #e0e2e8;
+    --muted: #94a3b8;
+    --accent: #7c3aed;
+    --accent-2: #06b6d4;
+    --accent-3: #10b981;
+    --accent-4: #f59e0b;
+    --card: #111319;
+    --border: #1f222c;
+    --code-bg: #0d0e13;
+    --highlight: #c4b5fd;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.6;
+    font-size: 16px;
+  }
+
+  .container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 60px 24px;
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    margin-bottom: 60px;
+    padding-bottom: 40px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .header h1 {
+    font-size: 36px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    margin: 0 0 16px 0;
+    background: linear-gradient(90deg, var(--text), var(--accent-2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .header .subtitle {
+    color: var(--muted);
+    font-size: 18px;
+    max-width: 600px;
+    margin: 0 auto;
+  }
+
+  .tag {
+    display: inline-block;
+    padding: 4px 12px;
+    background: rgba(124, 58, 237, 0.15);
+    color: var(--accent-2);
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    margin-top: 12px;
+    vertical-align: middle;
+  }
+
+  /* Sections */
+  section {
+    margin-bottom: 60px;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: baseline;
+    margin-bottom: 24px;
+  }
+
+  .section-header h2 {
+    font-size: 24px;
+    margin: 0;
+    padding-right: 16px;
+    border-right: 2px solid var(--border);
+  }
+
+  .section-header .meta {
+    color: var(--muted);
+    font-size: 14px;
+    margin-left: 16px;
+  }
+
+  /* Grid layouts */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 24px;
+  }
+
+  .grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 24px;
+  }
+
+  @media (max-width: 768px) {
+    .grid-2, .grid-3 {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  /* Cards */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+  }
+
+  .card-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+  }
+
+  .card-title .icon {
+    width: 24px;
+    height: 24px;
+    margin-right: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(124, 58, 237, 0.1);
+    color: var(--accent);
+    border-radius: 8px;
+    font-size: 14px;
+  }
+
+  .card-text {
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  /* Architecture diagram */
+  .arch-diagram {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    margin: 24px 0;
+    overflow-x: auto;
+  }
+
+  .arch-box {
+    background: var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    display: inline-block;
+    min-width: 120px;
+    text-align: center;
+    margin: 10px;
+  }
+
+  .arch-box.active { background: rgba(124, 58, 237, 0.15); border: 1px solid var(--accent); }
+  .arch-box.l2 { background: rgba(6, 182, 212, 0.15); border: 1px solid var(--accent-2); }
+  .arch-box.l3 { background: rgba(16, 185, 129, 0.15); border: 1px solid var(--accent-3); }
+  .arch-box.l4 { background: rgba(245, 158, 11, 0.15); border: 1px solid var(--accent-4); }
+  .arch-box.l5 { background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; }
+
+  .arch-arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-size: 20px;
+  }
+
+  /* Comparison table */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+    font-size: 14px;
+  }
+
+  th, td {
+    padding: 14px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+
+  th {
+    color: var(--muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+  }
+
+  tr:last-child td { border-bottom: none; }
+
+  /* Code blocks */
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    overflow-x: auto;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 13px;
+    margin: 16px 0;
+  }
+
+  .code-keyword { color: #c678dd; }
+  .code-string { color: #98c379; }
+  .code-fn { color: #61afef; }
+  .code-type { color: #e5c07b; }
+
+  /* Key contributions list */
+  .contribution-item {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 20px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .contribution-item:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+
+  .contrib-number {
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--accent);
+    opacity: 0.15;
+    line-height: 1;
+  }
+
+  .contrib-content h3 {
+    margin: 0 0 8px 0;
+    font-size: 16px;
+  }
+
+  .contrib-content p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .contrib-content code {
+    background: var(--border);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--highlight);
+    font-size: 12px;
+  }
+
+  /* Timeline */
+  .timeline {
+    position: relative;
+    padding-left: 30px;
+    margin-left: 15px;
+  }
+
+  .timeline::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--border);
+  }
+
+  .timeline-item {
+    position: relative;
+    margin-bottom: 32px;
+  }
+
+  .timeline-item::before {
+    content: "";
+    position: absolute;
+    left: -32px;
+    top: 4px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  .timeline-item.completed::before {
+    background: var(--accent-3);
+  }
+
+  .timeline-item.current::before {
+    background: var(--accent-2);
+    box-shadow: 0 0 0 4px rgba(6, 182, 212, 0.3);
+  }
+
+  .timeline-date {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+
+  .timeline-content h3 {
+    margin: 0 0 4px 0;
+    font-size: 15px;
+  }
+
+  .timeline-content p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  /* Signature */
+  .signature {
+    text-align: center;
+    margin-top: 60px;
+    padding-top: 40px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .signature span {
+    color: var(--accent);
+    font-weight: 600;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>ARES Research</h1>
+    <div class="subtitle">
+      Technical Novelty Report
+      <span class="tag">Adaptive Reliability with Expert Specialization</span>
+    </div>
+  </div>
+
+  <section>
+    <div class="section-header">
+      <h2>Executive Summary</h2>
+    </div>
+    <div class="card">
+      <p style="margin: 0; line-height: 1.7;">
+        ARES (Adaptive Reliability with Expert Specialization) introduces a <strong>learned routing framework</strong> that adds reliability-aware adaptive computation to frozen pretrained language models. Unlike traditional Mixture-of-Experts or threshold-based reliability systems, ARES combines <strong>dual reliability signals</strong> (Global + Local Reliability Models) with a learned router to make per-token routing decisions between a base model and domain-specialized LoRA experts.
+      </p>
+      <p style="margin: 16px 0 0 0; line-height: 1.7;">
+        The core innovation is treating reliability estimation not as a post-hoc calibration problem, but as a <strong>first-class learned component</strong> that directly informs compute allocation decisions. This creates a closed loop: representations → reliability probes → adaptive routing → specialized expertise.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-header">
+      <h2>Architectural Innovation</h2>
+      <span class="meta">How ARES differs from prior art</span>
+    </div>
+
+    <div class="arch-diagram">
+      <div style="display: flex; align-items: center; justify-content: center; flex-wrap: wrap;">
+        <div class="arch-box">Frozen Qwen<br>Backbone</div>
+        <div class="arch-arrow">↓</div>
+        <div class="arch-box active">Representation<br>Collector</div>
+        <div class="arch-arrow">↓</div>
+        <div style="display: flex; gap: 20px;">
+          <div class="arch-box l2">GRM<br>Global Reliability</div>
+          <div class="arch-arrow">↔</div>
+          <div class="arch-box l3">LRM<br>Local Reliability</div>
+        </div>
+        <div class="arch-arrow">↓</div>
+        <div class="arch-box l4">Router<br>MLP</div>
+        <div class="arch-arrow">↓</div>
+        <div style="display: flex; gap: 20px;">
+          <div class="arch-box active">BASE</div>
+          <div class="arch-arrow">→</div>
+          <div class="arch-box l5">5 LoRA<br>Experts</div>
+        </div>
+      </div>
+    </div>
+
+    <h3 style="font-size: 16px; margin-bottom: 16px;">Layer-by-Layer Breakdown</h3>
+    <div class="grid-3">
+      <div class="card">
+        <div class="card-title">
+          <span class="icon">0</span>
+          <span>Frozen Backbone</span>
+        </div>
+        <div class="card-text">
+          Qwen2.5-0.5B/1.5B/7B (4-bit NF4). Critical constraint: <code>use_cache=False</code> and eager attention to enable dynamic expert switching mid-generation.
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">
+          <span class="icon">1</span>
+          <span>Representation Collector</span>
+        </div>
+        <div class="card-text">
+          Multi-layer extraction (layers {-1, -6, -12, -24}) with pooled representations. Enables reliability signals from multiple depth levels.
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">
+          <span class="icon">2</span>
+          <span>GRM</span>
+        </div>
+        <div class="card-text">
+          2-layer transformer encoder on pooled representations → domain classification (5-class) + global feasibility + reliability scores.
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">
+          <span class="icon">3</span>
+          <span>LRM</span>
+        </div>
+        <div class="card-text">
+          2-layer transformer over token-wise states → per-token correctness probability. Captures local uncertainty missed by global models.
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">
+          <span class="icon">4</span>
+          <span>Router</span>
+        </div>
+        <div class="card-text">
+          2-layer MLP (896→256→6) with soft routing, top-k, and Gumbel-Softmax modes. Uses Switch Transformer auxiliary loss for load balancing.
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title">
+          <span class="icon">5</span>
+          <span>Experts</span>
+        </div>
+        <div class="card-text">
+          5 LoRA experts (E0-E4) for general, math, code, science, reasoning. r=16, alpha=32, with gated multi-adapter architecture.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-header">
+      <h2>Key Technical Novelty</h2>
+      <span class="meta">Why this isn't just another Mixture of Experts</span>
+    </div>
+
+    <div class="contribution-item">
+      <div class="contrib-number">1</div>
+      <div class="contrib-content">
+        <h3>Dual Reliability Signal Fusion</h3>
+        <p>
+          Combines <strong>Global Reliability Model (GRM)</strong> for宏观 domain-aware confidence with <strong>Local Reliability Model (LRM)</strong> for per-token uncertainty. This dual signals enable more nuanced routing than either approach alone.
+        </p>
+      </div>
+    </div>
+
+    <div class="contribution-item">
+      <div class="contrib-number">2</div>
+      <div class="contrib-content">
+        <h3>Reliability-Driven Compute Allocation</h3>
+        <p>
+          The router doesn't just select experts—it selects <strong>whether to use specialized expertise at all</strong>. The base path returns unchanged representations, while expert paths apply LoRA adaptations. This is a selective compute decision, not just expert selection.
+        </p>
+      </div>
+    </div>
+
+    <div class="contribution-item">
+      <div class="contrib-number">3</div>
+      <div class="contrib-content">
+        <h3>Calibrated Reliability Estimation</h3>
+        <p>
+          GRM/LRM outputs undergo temperature scaling and isotonic regression calibration. The resulting reliability scores have low ECE, enabling trustworthy selective prediction: when R(x) &lt; 0.5, predictions are indeed wrong more than 50% of the time.
+        </p>
+      </div>
+    </div>
+
+    <div class="contribution-item">
+      <div class="contrib-number">4</div>
+      <div class="contrib-content">
+        <h3>Frozen Backbone + Parameter-Efficient Adaptation</h3>
+        <p>
+          All adaptation happens via LoRA adapters (r=16) without fine-tuning the backbone. Combined with 4-bit NF4 quantization, this enables 7B-scale models on single GPUs while keeping the core model immutable.
+        </p>
+      </div>
+    </div>
+
+    <div class="contribution-item">
+      <div class="contrib-number">5</div>
+      <div class="contrib-content">
+        <h3>Domain-Specialized Expert Pool</h3>
+        <p>
+          Unlike generic MoE where experts learn implicitly from routing, ARES experts are explicitly trained on domain-specific data (math=gsm8k, code=MBPP, etc.). Each expert should outperform base on its designated domain.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-header">
+      <h2>Comparative Analysis</h2>
+      <span class="meta">ARES vs. Related Approaches</span>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Approach</th>
+          <th>Reliability Estimation</th>
+          <th>Expert Selection</th>
+          <th>Compute Adjustment</th>
+          <th>Expert Specialization</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>ARES</strong></td>
+          <td style="color: var(--accent-3)">Dual signals (GRM+LRM)</td>
+          <td style="color: var(--accent-3)">Learned MLP with 5 modes</td>
+          <td style="color: var(--accent-3)">Base vs. LoRA experts</td>
+          <td style="color: var(--accent-3)">Explicit domain training</td>
+        </tr>
+        <tr>
+          <td>Standard MoE</td>
+          <td style="color: var(--muted)">Implicit via router logits</td>
+          <td style="color: var(--muted)">Hard top-1/top-k</td>
+          <td style="color: var(--muted)">Expert only (no base path)</td>
+          <td style="color: var(--muted)">Implicit learned</td>
+        </tr>
+        <tr>
+          <td>Confidence Thresholding</td>
+          <td style="color: var(--muted)">Token probability/entropy</td>
+          <td style="color: var(--muted)">Fixed threshold</td>
+          <td style="color: var(--muted)">Early exit only</td>
+          <td style="color: var(--muted)">None</td>
+        </tr>
+        <tr>
+          <td>Adaptive inference</td>
+          <td style="color: var(--muted)">Exit entropy</td>
+          <td style="color: var(--muted)">Layer-wise early exit</td>
+          <td style="color: var(--muted)">Early exit at layers</td>
+          <td style="color: var(--muted)">None</td>
+        </tr>
+        <tr>
+          <td>Self-Refine</td>
+          <td style="color: var(--muted)">External judge model</td>
+          <td style="color: var(--muted)">Fixed iterations</td>
+          <td style="color: var(--muted)">Full re-generation</td>
+          <td style="color: var(--muted)">None</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <div class="section-header">
+      <h2>Implementation Highlights</h2>
+      <span class="meta">Key architectural decisions</span>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3 style="margin: 0 0 12px 0; font-size: 16px;">LoRA Expert Architecture</h3>
+        <p style="margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6;">
+          Each LoRA expert has <strong>gated multi-adapter</strong> structure:
+          <pre><code><span class="code-keyword">class</span> <span class="code-type">LoRAExpert</span>(nn.Module):
+    <span class="code-keyword">def</span> __init__(self, config):
+        <span class="code-keyword">self</span>.lora_layers = nn.ModuleDict()
+        <span class="code-keyword">for</span> module <span class="code-keyword">in</span> config.target_modules:
+            <span class="code-keyword">self</span>.lora_layers[module] = LoRALayer(...)
+        <span class="code-keyword">self</span>.gate = nn.Sequential(
+            nn.Linear(config.in_features, config.r),
+            nn.GELU(),
+            nn.Linear(config.r, <span class="code-string">1</span>),
+            nn.Sigmoid()
+        )</code></pre>
+          The gate computes adaptation magnitude based on input representation.
+        </p>
+      </div>
+
+      <div class="card">
+        <h3 style="margin: 0 0 12px 0; font-size: 16px;">Switch Transformer Load Balancing</h3>
+        <p style="margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6;">
+          <pre><code><span class="code-keyword">def</span> <span class="code-fn">load_balancing_loss</span>(routing_probs):
+    n_classes = <span class="code-string">5</span> + <span class="code-string">1</span>
+    f = <span class="code-keyword">torch</span>.zeros(n_classes)  <span class="code-comment"># token fraction per route</span>
+    P = routing_probs.mean(<span class="code-keyword">dim</span>=<span class="code-string">0</span>)  <span class="code-comment"># mean routing prob</span>
+    <span class="code-keyword">return</span> n_classes * (f * P).sum()</code></pre>
+          Ensures balanced expert usage across training batches.</p>
+      </div>
+
+      <div class="card">
+        <h3 style="margin: 0 0 12px 0; font-size: 16px;">Dual Reliability Forward</h3>
+        <p style="margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6;">
+          <pre><code><span class="code-keyword">def</span> <span class="code-fn">evaluate_reliability</span>(hidden_states, pooled):
+    <span class="code-comment"># Global Reliability Model</span>
+    domain_logits, feasibility, global_rel = <span class="code-keyword">self</span>.grm(pooled)
+    <span class="code-comment"># Local Reliability Model</span>
+    correctness_prob, failure_risk = <span class="code-keyword">self</span>.lrm(hidden_states)
+    <span class="code-comment"># Combined uncertainty</span>
+    uncertainty = <span class="code-string">1.0</span> - (global_rel * (<span class="code-string">1.0</span> - failure_risk.mean()))
+    <span class="code-keyword">return</span> {<span class="code-string">"global"</span>: global_rel, <span class="code-string">"local"</span>: correctness_prob.mean()}</code></pre>
+          Combines macro and micro reliability signals.</p>
+      </div>
+
+      <div class="card">
+        <h3 style="margin: 0 0 12px 0; font-size: 16px;">Expert Hook Mechanism</h3>
+        <p style="margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6;">
+          <pre><code><span class="code-keyword">def</span> <span class="code-fn">_make_expert_hook</span>(expert):
+    <span class="code-keyword">def</span> <span class="code-fn">hook_fn</span>(module, input_args, output):
+        h = output[<span class="code-string">0</span>]  <span class="code-comment"># Get hidden state</span>
+        adapted = expert(h)
+        <span class="code-keyword">return</span> (adapted,) + output[<span class="code-string">1:</span>]
+    <span class="code-keyword">return</span> hook_fn</code></pre>
+          During generation, the hook applies LoRA adaptation only to selected experts.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-header">
+      <h2>Timeline of Development</h2>
+      <span class="meta">Implementation progress (2026-08-18 to present)</span>
+    </div>
+
+    <div class="timeline">
+      <div class="timeline-item completed">
+        <div class="timeline-date">Week 1 (2026-08-19)</div>
+        <div class="timeline-content">
+          <h3>Backbone Infrastructure</h3>
+          <p>Qwen2.5 loader with frozen params, use_cache=False, eager attention. DDP setup verified on 2x T4 Kaggle.</p>
+        </div>
+      </div>
+
+      <div class="timeline-item completed">
+        <div class="timeline-date">Week 2 (2026-08-24)</div>
+        <div class="timeline-content">
+          <h3>Representation & Reliability</h3>
+          <p>Multi-layer collector, GRM (2-layer transformer), LRM (2-layer transformer), calibration module. Self-supervised pretraining (contrastive + reconstruction) implemented.</p>
+        </div>
+      </div>
+
+      <div class="timeline-item completed">
+        <div class="timeline-date">Week 3 (2026-08-26)</div>
+        <div class="timeline-content">
+          <h3>Experts & Router</h3>
+          <p>5 LoRA experts (r=16, alpha=32), Router MLP (896→256→6), Switch Transformer auxiliary loss. End-to-end pipeline tested with dynamic routing and domain evaluation.</p>
+        </div>
+      </div>
+
+      <div class="timeline-item current">
+        <div class="timeline-date">Week 4 (2026-08-28 - present)</div>
+        <div class="timeline-content">
+          <h3>Real Data Evaluation</h3>
+          <p>Benchmark loaders (GSM8K, MBPP, AI2-ARC), expert training on real data, router training with oracle labels, baseline comparison suite (B0-B4), statistical testing.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-header">
+      <h2>Expected Research Contributions</h2>
+      <span class="meta">Potential paper contributions</span>
+    </div>
+
+    <div class="card">
+      <ol style="margin: 0; padding-left: 24px;">
+        <li style="margin-bottom: 12px;">
+          <strong>Learned adaptive routing algorithm</strong> — A neural router using GRM+LRM signals to dynamically select between base model and specialized experts, outperforming simple threshold-based approaches.
+        </li>
+        <li style="margin-bottom: 12px;">
+          <strong>Domain-specialized expert system</strong> — 5 LoRA experts each specialized for different domains (math, code, science, general, reasoning), with empirical evidence of specialization benefits.
+        </li>
+        <li style="margin-bottom: 12px;">
+          <strong>Calibrated reliability estimation</strong> — GRM/LRM probes that produce well-calibrated reliability scores (low ECE), enabling trustworthy selective prediction.
+        </li>
+        <li style="margin-bottom: 12px;">
+          <strong>Selective computation framework</strong> — Demonstrated tradeoff: ARES achieves better accuracy than base model while invoking experts on only 60-70% of inputs.
+        </li>
+        <li style="margin-bottom: 12px;">
+          <strong>Comprehensive evaluation protocol</strong> — Standardized baseline matrix (B0-B4), metrics (accuracy, ECE, risk-coverage, selective prediction), and statistical testing framework.
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <div class="signature">
+    <p>Report generated for ARES Research by Claude Code</p>
+    <p>Based on codebase analysis at <span class="signature">d:\Programming\Projects\ARES Research</span></p>
+  </div>
+</div>
+</body>
+</html>

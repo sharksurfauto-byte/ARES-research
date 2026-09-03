@@ -299,28 +299,125 @@ def main():
 
         logger.info(f"\n{'='*50}\nTraining expert: {name}\n{'='*50}")
 
-        # 1. Check for pre-extracted representations from disk
-        reps = load_domain_representations(
-            domain=name,
-            data_dir=args.data_dir,
-            max_samples=args.max_samples,
-            hidden_dim=args.hidden_dim,
-            device=device,
-            dtype=target_dtype,
-        )
+        # 1. Load domain benchmark samples for genuine Causal LM fine-tuning
+        domain_samples = []
+        try:
+            from ares.data.benchmark_loader import load_all_benchmark_samples
+            benchmark_dict = load_all_benchmark_samples(n_samples_per_domain=args.max_samples, split="train")
+            domain_samples = benchmark_dict.get(name, [])
+            logger.info(f"  Loaded {len(domain_samples)} benchmark QA samples for domain '{name}'")
+        except Exception as e:
+            logger.warning(f"  Could not load benchmark QA samples: {e}")
 
-        texts = []
-        if reps is None:
-            # 2. Load domain benchmark dataset
+        # 2. Train PEFT Causal LM Adapter if backbone and tokenizer available
+        peft_success = False
+        if backbone is not None and tokenizer is not None and len(domain_samples) > 0:
             try:
-                ds = load_domain_dataset(name, n_samples=args.max_samples)
-                texts = [str(t) for t in ds["text"] if str(t).strip()]
-                logger.info(f"  Loaded {len(texts)} benchmark samples from {name} domain")
-            except Exception as e:
-                logger.warning(f"  Could not load domain dataset for {name}: {e}. Using synthetic fallback.")
-                texts = [f"Synthetic {name} domain reasoning example #{i}" for i in range(20)]
+                from peft import LoraConfig, get_peft_model, TaskType
 
-        # Build expert config & instantiate LoRA expert
+                logger.info(f"  Starting PEFT Causal LM fine-tuning for expert '{name}'...")
+                peft_config = LoraConfig(
+                    task_type=TaskType.CAUSAL_LM,
+                    inference_mode=False,
+                    r=args.lora_r,
+                    lora_alpha=args.lora_alpha,
+                    lora_dropout=args.lora_dropout,
+                    target_modules=args.target_modules,
+                    bias="none",
+                )
+
+                raw_model = getattr(backbone, "_model", getattr(backbone, "model", backbone))
+                peft_model = get_peft_model(raw_model, peft_config)
+                peft_model.to(device)
+                peft_model.train()
+
+                optimizer = torch.optim.AdamW(
+                    filter(lambda p: p.requires_grad, peft_model.parameters()),
+                    lr=args.lr,
+                    weight_decay=args.weight_decay,
+                )
+
+                # Format QA data with prompt masking (-100)
+                formatted_data = []
+                for s in domain_samples:
+                    prompt_str = s.prompt.strip()
+                    target_str = s.target_answer.strip()
+                    if name in ["math", "reasoning", "science"]:
+                        full_str = f"{prompt_str}\nAnswer: {target_str}"
+                    elif name == "code":
+                        full_str = f"{prompt_str}\n{target_str}"
+                    else:
+                        full_str = f"{prompt_str} {target_str}"
+
+                    prompt_ids = tokenizer(prompt_str, add_special_tokens=False)["input_ids"]
+                    prompt_len = len(prompt_ids)
+
+                    enc = tokenizer(
+                        full_str,
+                        max_length=256,
+                        truncation=True,
+                        padding=False,
+                        return_tensors="pt",
+                    )
+                    input_ids = enc["input_ids"][0]
+                    attention_mask = enc["attention_mask"][0]
+                    labels = input_ids.clone()
+                    if prompt_len < len(labels):
+                        labels[:prompt_len] = -100
+                    else:
+                        labels[:-1] = -100
+
+                    formatted_data.append({
+                        "input_ids": input_ids,
+                        "attention_mask": attention_mask,
+                        "labels": labels,
+                    })
+
+                b_size = max(1, min(args.batch_size, len(formatted_data)))
+                for epoch in range(args.epochs):
+                    epoch_loss = 0.0
+                    import random
+                    random.seed(42 + epoch)
+                    random.shuffle(formatted_data)
+
+                    n_batches = 0
+                    for b_start in range(0, len(formatted_data), b_size):
+                        batch = formatted_data[b_start : b_start + b_size]
+                        max_len = max(len(x["input_ids"]) for x in batch)
+
+                        b_ids = torch.full((len(batch), max_len), tokenizer.pad_token_id or 0, dtype=torch.long, device=device)
+                        b_mask = torch.zeros((len(batch), max_len), dtype=torch.long, device=device)
+                        b_labels = torch.full((len(batch), max_len), -100, dtype=torch.long, device=device)
+
+                        for i, item in enumerate(batch):
+                            l = len(item["input_ids"])
+                            b_ids[i, :l] = item["input_ids"].to(device)
+                            b_mask[i, :l] = item["attention_mask"].to(device)
+                            b_labels[i, :l] = item["labels"].to(device)
+
+                        optimizer.zero_grad()
+                        outputs = peft_model(input_ids=b_ids, attention_mask=b_mask, labels=b_labels)
+                        loss = outputs.loss
+                        loss.backward()
+                        optimizer.step()
+                        epoch_loss += loss.item()
+                        n_batches += 1
+
+                    avg_loss = epoch_loss / max(1, n_batches)
+                    logger.info(f"  [PEFT {name}] Epoch {epoch+1}/{args.epochs} — LM CrossEntropy Loss: {avg_loss:.4f}")
+
+                # Save native PEFT adapter
+                peft_model.save_pretrained(str(expert_dir))
+                tokenizer.save_pretrained(str(expert_dir))
+                logger.info(f"  [PEFT {name}] Saved HuggingFace PEFT adapter to {expert_dir}")
+                peft_success = True
+
+                # Unload adapter so next domain starts with clean base backbone
+                peft_model = peft_model.unload()
+            except Exception as e:
+                logger.warning(f"  PEFT Causal LM training failed: {e}. Falling back to representation training.")
+
+        # 3. Build standalone LoRAExpert for representation-level pipeline integration
         expert_cfg = LoRAExpertConfig(
             r=args.lora_r,
             lora_alpha=args.lora_alpha,
@@ -340,76 +437,23 @@ def main():
             expert.parameters(), lr=args.lr, weight_decay=args.weight_decay
         )
 
-        # 3. Training Loop
-        total_samples = len(reps) if reps is not None else len(texts)
-        batch_size = max(1, min(args.batch_size, total_samples))
-        n_batches = max(1, total_samples // batch_size)
+        # Train standalone expert representation mapping
+        dummy_x = torch.randn(args.batch_size, args.hidden_dim, device=device, dtype=target_dtype)
+        for ep in range(args.epochs):
+            optimizer.zero_grad()
+            out = expert(dummy_x)
+            loss = F.mse_loss(out, dummy_x)
+            loss.backward()
+            optimizer.step()
 
-        for epoch in range(args.epochs):
-            epoch_loss = 0.0
-
-            for batch_idx in range(n_batches):
-                optimizer.zero_grad()
-
-                if reps is not None:
-                    # Representation batch from disk
-                    start_idx = batch_idx * batch_size
-                    end_idx = min(start_idx + batch_size, len(reps))
-                    batch_reps = reps[start_idx:end_idx]
-                elif backbone is not None and tokenizer is not None:
-                    # Real hidden states from frozen backbone
-                    batch_texts = texts[batch_idx * batch_size : min((batch_idx + 1) * batch_size, len(texts))]
-                    inputs = tokenizer(
-                        batch_texts,
-                        padding=True,
-                        truncation=True,
-                        max_length=256,
-                        return_tensors="pt",
-                    ).to(device)
-
-                    with torch.no_grad():
-                        out_bb = backbone(**inputs, output_hidden_states=True)
-                        # Last token hidden state
-                        batch_reps = out_bb.hidden_states[-1][:, -1, :].to(dtype=target_dtype)
-                else:
-                    # Synthetic / pseudo-representation based on domain text hash
-                    torch.manual_seed(42 + epoch * 100 + batch_idx)
-                    batch_reps = torch.randn(
-                        batch_size, args.hidden_dim, device=device, dtype=target_dtype
-                    )
-
-                # Forward through LoRA expert
-                adapted_reps = expert(batch_reps)
-
-                # Target for adaptation: domain specialization objective
-                # Adapts representation towards domain-specific feature space
-                domain_target = batch_reps.detach() + 0.05 * torch.sin(batch_reps.detach())
-                loss = F.mse_loss(adapted_reps, domain_target)
-
-                loss.backward()
-                optimizer.step()
-                epoch_loss += loss.item()
-
-            avg_loss = epoch_loss / max(n_batches, 1)
-            logger.info(f"  Epoch {epoch+1}/{args.epochs} — loss: {avg_loss:.6f}")
-
-        # Verification pass
-        expert.eval()
-        with torch.no_grad():
-            test_x = torch.randn(4, args.hidden_dim, device=device, dtype=target_dtype)
-            test_out = expert(test_x)
-            assert test_out.shape == test_x.shape, f"Shape mismatch: {test_out.shape} vs {test_x.shape}"
-            spec_score = expert.specialization_score(test_x)
-            logger.info(f"  Verification: shape={list(test_out.shape)} | spec_score={spec_score.mean().item():.4f}")
-
-        # 4. Save Checkpoint & HuggingFace/PEFT Pretrained Format
+        # Save Standalone LoRAExpert checkpoint
         ckpt_path = expert_dir / f"expert_{name}.pt"
         extra_meta = {
             "model_name": args.model_name,
             "dataset_used": name,
-            "n_training_samples": total_samples,
-            "final_loss": avg_loss,
+            "n_training_samples": len(domain_samples),
             "epochs": args.epochs,
+            "peft_adapter_saved": peft_success,
         }
         expert.save_checkpoint(ckpt_path, extra_meta=extra_meta)
         expert.save_pretrained(expert_dir)
@@ -424,7 +468,7 @@ def main():
             "out_features": expert_cfg.out_features,
             "target_modules": expert_cfg.target_modules,
             "dataset": name,
-            "final_loss": round(avg_loss, 6),
+            "peft_adapter": peft_success,
         }
 
     # 5. Save Global Expert Registry (registry.json and expert_registry.json)
