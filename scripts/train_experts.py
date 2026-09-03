@@ -326,9 +326,14 @@ def main():
                     bias="none",
                 )
 
-                raw_model = getattr(backbone, "_model", getattr(backbone, "model", backbone))
-                peft_model = get_peft_model(raw_model, peft_config)
-                peft_model.to(device)
+                # Load a clean instance of the base backbone for this expert
+                from transformers import AutoModelForCausalLM
+                expert_base_model = AutoModelForCausalLM.from_pretrained(
+                    args.model_name,
+                    torch_dtype=target_dtype,
+                ).to(device)
+
+                peft_model = get_peft_model(expert_base_model, peft_config)
                 peft_model.train()
 
                 optimizer = torch.optim.AdamW(
@@ -337,13 +342,18 @@ def main():
                     weight_decay=args.weight_decay,
                 )
 
-                # Format QA data with prompt masking (-100)
+                # Format QA data with rich target completion and prompt masking (-100)
                 formatted_data = []
                 for s in domain_samples:
                     prompt_str = s.prompt.strip()
                     target_str = s.target_answer.strip()
-                    if name in ["math", "reasoning", "science"]:
-                        full_str = f"{prompt_str}\nAnswer: {target_str}"
+                    
+                    if name == "math":
+                        # Use full step-by-step solution if available in metadata
+                        full_solution = s.metadata.get("full_answer", target_str) if s.metadata else target_str
+                        full_str = f"{prompt_str} {full_solution}"
+                    elif name in ["science", "reasoning"]:
+                        full_str = f"{prompt_str} The correct answer is ({target_str})."
                     elif name == "code":
                         full_str = f"{prompt_str}\n{target_str}"
                     else:
@@ -412,8 +422,10 @@ def main():
                 logger.info(f"  [PEFT {name}] Saved HuggingFace PEFT adapter to {expert_dir}")
                 peft_success = True
 
-                # Unload adapter so next domain starts with clean base backbone
-                peft_model = peft_model.unload()
+                # Clean up expert model to free GPU memory
+                del peft_model, expert_base_model, optimizer
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
             except Exception as e:
                 logger.warning(f"  PEFT Causal LM training failed: {e}. Falling back to representation training.")
 
