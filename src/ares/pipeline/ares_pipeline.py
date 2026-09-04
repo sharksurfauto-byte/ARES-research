@@ -118,13 +118,20 @@ class ARESPipeline:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
 
         if self.backbone is None:
+            is_7b = any(tag in self.config.model_name.lower() for tag in ["7b", "8b", "4bit"])
+            dev_str = str(self.device)
+            use_4bit = is_7b and dev_str != "cpu"
+
             backbone_cfg = BackboneConfig(
                 name=self.config.model_name,
-                device_map=str(self.device),
+                device_map="auto" if use_4bit else (None if dev_str != "cpu" else "cpu"),
+                load_in_4bit=use_4bit,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype="float16",
                 use_cache=False,
                 attn_implementation="eager",
             )
-            self.backbone = load_backbone(backbone_cfg)
+            self.backbone = load_backbone(backbone_cfg, device=self.device)
 
         hidden_dim = self.config.hidden_dim or getattr(self.backbone, "hidden_size", 896)
 
@@ -387,8 +394,15 @@ class ARESPipeline:
         ):
             try:
                 clean_user_content = prompt.rstrip("\nAnswer:").rstrip("Answer:").strip()
+                messages = [
+                    {
+                        "role": "system",
+                        "content": "You are a helpful and mathematically precise AI assistant. Answer the user's question directly, clearly, and step by step.",
+                    },
+                    {"role": "user", "content": clean_user_content},
+                ]
                 formatted_prompt = self.tokenizer.apply_chat_template(
-                    [{"role": "user", "content": clean_user_content}],
+                    messages,
                     tokenize=False,
                     add_generation_prompt=True,
                 )

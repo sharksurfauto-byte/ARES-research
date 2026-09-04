@@ -79,9 +79,14 @@ with st.sidebar:
 
     model_name = st.selectbox(
         "Backbone Model",
-        ["Qwen/Qwen2.5-0.5B-Instruct", "Qwen/Qwen2.5-0.5B"],
+        [
+            "Qwen/Qwen2.5-7B-Instruct",
+            "Qwen/Qwen2.5-1.5B-Instruct",
+            "Qwen/Qwen2.5-0.5B-Instruct",
+            "Qwen/Qwen2.5-0.5B",
+        ],
         index=0,
-        help="Instruct model follows direct user questions; Base model performs raw text completion.",
+        help="7B runs with 4-bit NF4 quantization (~5.5GB VRAM) for maximum reasoning power on Kaggle T4 GPU.",
     )
 
     st.markdown("---")

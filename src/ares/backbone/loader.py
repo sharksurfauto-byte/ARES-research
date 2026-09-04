@@ -107,9 +107,9 @@ def load_backbone(config_or_name: Any, **kwargs) -> Backbone:
     model.config.use_cache = False
     model.config.attn_implementation = "eager"
 
-    # Move model to target device (needed when device_map=None)
+    # Move model to target device (needed when device_map=None and not 4-bit)
     target_device = getattr(config, "_device_str", None)
-    if target_device and target_device != "cpu" and config.device_map is None:
+    if not config.load_in_4bit and target_device and target_device != "cpu" and config.device_map is None:
         logger.info(f"Moving model to {target_device}")
         model = model.to(target_device)
 
