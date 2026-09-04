@@ -375,8 +375,27 @@ class ARESPipeline:
         timing: Dict[str, float] = {}
         total_start = time.perf_counter()
 
-        # ─── 1. Tokenize Prompt ──────────────────────────────────────────────
-        raw_inputs = self.tokenizer(prompt, return_tensors="pt")
+        # ─── 1. Tokenize Prompt (with Chat Template if Instruct model) ───────
+        formatted_prompt = prompt
+        if (
+            hasattr(self.tokenizer, "apply_chat_template")
+            and "<|im_start|>" not in prompt
+            and (
+                "Instruct" in getattr(self.config, "model_name", "")
+                or getattr(self.tokenizer, "chat_template", None) is not None
+            )
+        ):
+            try:
+                clean_user_content = prompt.rstrip("\nAnswer:").rstrip("Answer:").strip()
+                formatted_prompt = self.tokenizer.apply_chat_template(
+                    [{"role": "user", "content": clean_user_content}],
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+            except Exception:
+                formatted_prompt = prompt
+
+        raw_inputs = self.tokenizer(formatted_prompt, return_tensors="pt")
         inputs = {
             k: v.to(self.device) if hasattr(v, "to") else v
             for k, v in raw_inputs.items()
@@ -411,9 +430,15 @@ class ARESPipeline:
         t0 = time.perf_counter()
         raw_model = getattr(self.backbone, "_model", getattr(self.backbone, "model", self.backbone))
 
+        eos_ids = [self.tokenizer.eos_token_id]
+        im_end = self.tokenizer.encode("<|im_end|>", add_special_tokens=False)
+        if im_end and im_end[0] not in eos_ids:
+            eos_ids.append(im_end[0])
+
         gen_kwargs: Dict[str, Any] = {
             "max_new_tokens": max_new_tokens,
-            "pad_token_id": self.tokenizer.eos_token_id,
+            "pad_token_id": self.tokenizer.pad_token_id or self.tokenizer.eos_token_id,
+            "eos_token_id": eos_ids if len(eos_ids) > 1 else self.tokenizer.eos_token_id,
             "do_sample": do_sample,
         }
         if do_sample:

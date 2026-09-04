@@ -77,6 +77,13 @@ with st.sidebar:
     )
     force_mock = "Demo" in exec_mode
 
+    model_name = st.selectbox(
+        "Backbone Model",
+        ["Qwen/Qwen2.5-0.5B-Instruct", "Qwen/Qwen2.5-0.5B"],
+        index=0,
+        help="Instruct model follows direct user questions; Base model performs raw text completion.",
+    )
+
     st.markdown("---")
     st.markdown("### 🧭 Routing & Gating Policy")
     strategy = st.selectbox(
@@ -116,15 +123,15 @@ with st.sidebar:
 
 # ─── Initialize Session State & Runner ───────────────────────────────────────
 @st.cache_resource
-def get_runner(force_mock_mode: bool):
+def get_runner(force_mock_mode: bool, selected_model: str):
     return VisualizerRunner(
-        model_name="Qwen/Qwen2.5-0.5B",
+        model_name=selected_model,
         checkpoints_dir="checkpoints",
         force_mock=force_mock_mode,
         device="auto",
     )
 
-runner = get_runner(force_mock)
+runner = get_runner(force_mock, model_name)
 
 # Top Banner
 render_header()
