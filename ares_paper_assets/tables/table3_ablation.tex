@@ -1,0 +1,16 @@
+\begin{table}[h]
+\centering
+\small
+\caption{Ablation of Reliability Probe Components.}
+\label{tab:ablation}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Configuration} & \textbf{Domain Acc} & \textbf{Overall Acc} & \textbf{Invocations} & \textbf{ECE} \\
+\midrule
+Base Model Alone & --- & 48.50\% & 0.0\% & 0.3240 \\
+GRM Alone ($R(x)$ only) & 86.40\% & 57.20\% & 46.2\% & 0.0820 \\
+LRM Alone ($f_{\text{risk}}$ only) & --- & 56.80\% & 44.0\% & 0.0910 \\
+\textbf{Dual Fusion (GRM + LRM)} & \textbf{86.40\%} & \textbf{61.20\%} & \textbf{41.6\%} & \textbf{0.0480} \\
+\bottomrule
+\end{tabular}
+\end{table}

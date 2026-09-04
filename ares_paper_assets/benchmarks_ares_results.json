@@ -1,0 +1,167 @@
+{
+  "total_samples": 250,
+  "domains_evaluated": [
+    "code",
+    "general",
+    "math",
+    "reasoning",
+    "science"
+  ],
+  "strategies": [
+    "BASE",
+    "FIXED_EXPERT",
+    "DYNAMIC_ARES",
+    "THRESHOLD_ROUTER",
+    "RANDOM_ROUTER",
+    "ORACLE_ROUTER"
+  ],
+  "strategy_metrics": {
+    "BASE": {
+      "strategy_name": "BASE",
+      "accuracy": 0.612,
+      "domain_accuracies": {
+        "code": 1.0,
+        "general": 1.0,
+        "math": 0.04,
+        "reasoning": 0.54,
+        "science": 0.48
+      },
+      "mean_latency_ms": 2622.693985592009,
+      "p50_latency_ms": 3917.244137500006,
+      "p95_latency_ms": 4064.785679100578,
+      "expert_invocation_rate": 0.0,
+      "routing_distribution": {
+        "BASE": 1.0
+      },
+      "total_samples": 250
+    },
+    "FIXED_EXPERT": {
+      "strategy_name": "FIXED_EXPERT",
+      "accuracy": 0.612,
+      "domain_accuracies": {
+        "code": 1.0,
+        "general": 1.0,
+        "math": 0.04,
+        "reasoning": 0.54,
+        "science": 0.48
+      },
+      "mean_latency_ms": 2619.932555503973,
+      "p50_latency_ms": 3914.706279500024,
+      "p95_latency_ms": 4071.6179069498594,
+      "expert_invocation_rate": 1.0,
+      "routing_distribution": {
+        "math": 1.0
+      },
+      "total_samples": 250
+    },
+    "DYNAMIC_ARES": {
+      "strategy_name": "DYNAMIC_ARES",
+      "accuracy": 0.612,
+      "domain_accuracies": {
+        "code": 1.0,
+        "general": 1.0,
+        "math": 0.04,
+        "reasoning": 0.54,
+        "science": 0.48
+      },
+      "mean_latency_ms": 2620.649323983988,
+      "p50_latency_ms": 3940.866337999978,
+      "p95_latency_ms": 4076.260101549974,
+      "expert_invocation_rate": 0.808,
+      "routing_distribution": {
+        "code": 0.124,
+        "general": 0.148,
+        "science": 0.14,
+        "reasoning": 0.176,
+        "math": 0.22,
+        "BASE": 0.192
+      },
+      "total_samples": 250
+    },
+    "THRESHOLD_ROUTER": {
+      "strategy_name": "THRESHOLD_ROUTER",
+      "accuracy": 0.612,
+      "domain_accuracies": {
+        "code": 1.0,
+        "general": 1.0,
+        "math": 0.04,
+        "reasoning": 0.54,
+        "science": 0.48
+      },
+      "mean_latency_ms": 2620.9797822919554,
+      "p50_latency_ms": 3932.290279500421,
+      "p95_latency_ms": 4097.536495050076,
+      "expert_invocation_rate": 0.416,
+      "routing_distribution": {
+        "general": 0.18,
+        "science": 0.068,
+        "reasoning": 0.104,
+        "math": 0.064,
+        "BASE": 0.584
+      },
+      "total_samples": 250
+    },
+    "RANDOM_ROUTER": {
+      "strategy_name": "RANDOM_ROUTER",
+      "accuracy": 0.612,
+      "domain_accuracies": {
+        "code": 1.0,
+        "general": 1.0,
+        "math": 0.04,
+        "reasoning": 0.54,
+        "science": 0.48
+      },
+      "mean_latency_ms": 2619.4028368920326,
+      "p50_latency_ms": 3929.807854000046,
+      "p95_latency_ms": 4071.973122750262,
+      "expert_invocation_rate": 0.848,
+      "routing_distribution": {
+        "code": 0.16,
+        "general": 0.184,
+        "science": 0.184,
+        "reasoning": 0.124,
+        "math": 0.196,
+        "BASE": 0.152
+      },
+      "total_samples": 250
+    },
+    "ORACLE_ROUTER": {
+      "strategy_name": "ORACLE_ROUTER",
+      "accuracy": 0.612,
+      "domain_accuracies": {
+        "code": 1.0,
+        "general": 1.0,
+        "math": 0.04,
+        "reasoning": 0.54,
+        "science": 0.48
+      },
+      "mean_latency_ms": 2620.5005613199774,
+      "p50_latency_ms": 3944.1520004997983,
+      "p95_latency_ms": 4086.6593005500818,
+      "expert_invocation_rate": 1.0,
+      "routing_distribution": {
+        "code": 0.2,
+        "general": 0.2,
+        "science": 0.2,
+        "reasoning": 0.2,
+        "math": 0.2
+      },
+      "total_samples": 250
+    }
+  },
+  "reliability_metrics": {
+    "mean_global_reliability": 0.497441394507885,
+    "mean_failure_risk": 0.5402000026106835,
+    "mean_uncertainty": 0.7686746848856819,
+    "domain_classification_accuracy": 0.864,
+    "ece": 0.19111827212572097,
+    "brier_score": 0.2538019800237087
+  },
+  "metadata": {
+    "model_name": "Qwen/Qwen2.5-0.5B",
+    "threshold": 0.5,
+    "fixed_expert": "math",
+    "max_new_tokens": 128,
+    "timestamp": "2026-09-03 18:05:15"
+  }
+}

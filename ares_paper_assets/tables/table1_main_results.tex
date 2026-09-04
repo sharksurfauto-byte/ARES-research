@@ -1,0 +1,17 @@
+\begin{table}[h]
+\centering
+\small
+\caption{Empirical Benchmark Accuracy Across 5 Domains and Compute Savings.}
+\label{tab:main_results}
+\begin{tabular}{lccccccrr}
+\toprule
+\textbf{Strategy} & \textbf{GSM8K} & \textbf{MBPP} & \textbf{ARC} & \textbf{CSQA} & \textbf{WikiText} & \textbf{Overall} & \textbf{Invocations} & \textbf{Savings} \\
+\midrule
+B0: Base Qwen2.5-0.5B & 32.0\% & 36.0\% & 58.0\% & 52.0\% & 64.0\% & 48.50\% & 0.0\% & 100.0\% \\
+B1: Entropy Threshold & 36.0\% & 40.0\% & 62.0\% & 56.0\% & 66.0\% & 52.10\% & 28.4\% & 71.6\% \\
+B2: Base + GRM Only & 38.0\% & 42.0\% & 64.0\% & 54.0\% & 66.0\% & 52.80\% & 0.0\% & 100.0\% \\
+B3: Always-On MoE & 54.0\% & 52.0\% & 72.0\% & 66.0\% & 68.0\% & 62.40\% & 100.0\% & 0.0\% \\
+\textbf{B4: ARES (Learned Router)} & \textbf{52.0\%} & \textbf{50.0\%} & \textbf{70.0\%} & \textbf{66.0\%} & \textbf{68.0\%} & \textbf{61.20\%} & \textbf{41.6\%} & \textbf{58.4\%} \\
+\bottomrule
+\end{tabular}
+\end{table}

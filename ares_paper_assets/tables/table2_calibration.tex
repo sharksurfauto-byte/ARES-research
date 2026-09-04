@@ -1,0 +1,15 @@
+\begin{table}[h]
+\centering
+\small
+\caption{Expected Calibration Error (ECE) and Probabilistic Scoring.}
+\label{tab:calibration}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Method} & \textbf{Pre-ECE} & \textbf{Post-ECE} & \textbf{Brier Score} & \textbf{NLL} \\
+\midrule
+Base Softmax Confidence & 0.3240 & 0.1680 & 0.2410 & 0.682 \\
+Raw GRM Probe & 0.1911 & 0.0840 & 0.1820 & 0.514 \\
+\textbf{ARES Dual Probes (Isotonic)} & \textbf{0.1911} & \textbf{0.0480} & \textbf{0.1140} & \textbf{0.392} \\
+\bottomrule
+\end{tabular}
+\end{table}
