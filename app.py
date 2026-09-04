@@ -231,7 +231,11 @@ with tab1:
     st.markdown("---")
 
     # 3. Side-by-Side Response Comparison
-    st.markdown(f"### 💬 Comparative Response Output Studio {render_route_badge(res.selected_route, res.route_confidence)}", unsafe_allow_html=True)
+    c_head1, c_head2 = st.columns([2.5, 1])
+    with c_head1:
+        st.markdown("### 💬 Comparative Response Output Studio")
+    with c_head2:
+        st.markdown(render_route_badge(res.selected_route, res.route_confidence), unsafe_allow_html=True)
 
     col_base, col_ares = st.columns(2)
 
