@@ -14,7 +14,13 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
-from transformers import AutoTokenizer, PreTrainedModel, PreTrainedTokenizer
+from transformers import (
+    AutoTokenizer,
+    PreTrainedModel,
+    PreTrainedTokenizer,
+    StoppingCriteria,
+    StoppingCriteriaList,
+)
 
 from ares.backbone.loader import Backbone, BackboneConfig, load_backbone
 from ares.experts.lora_expert import LoRAExpert
@@ -24,6 +30,20 @@ from ares.lrm.architecture import LRM
 
 
 DEFAULT_EXPERT_NAMES = ["general", "math", "code", "science", "reasoning"]
+
+
+class StopOnTokens(StoppingCriteria):
+    """Dynamically halts generation when any designated stop token is reached."""
+
+    def __init__(self, stop_token_ids: List[int]):
+        super().__init__()
+        self.stop_token_ids = set(stop_token_ids)
+
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
+        for seq in input_ids:
+            if len(seq) > 0 and seq[-1].item() in self.stop_token_ids:
+                return True
+        return False
 
 
 @dataclass
@@ -42,7 +62,7 @@ class PipelineConfig:
     routing_strategy: str = "dynamic"  # "dynamic", "base", "fixed", "threshold", "oracle", "random"
     fixed_expert_name: str = "math"
     
-    max_new_tokens: int = 50
+    max_new_tokens: int = 1024
     temperature: float = 0.7
     top_p: float = 0.9
     do_sample: bool = False
@@ -449,10 +469,13 @@ class ARESPipeline:
         if im_end and im_end[0] not in eos_ids:
             eos_ids.append(im_end[0])
 
+        stop_criteria = StoppingCriteriaList([StopOnTokens(eos_ids)])
+
         gen_kwargs: Dict[str, Any] = {
-            "max_new_tokens": max_new_tokens,
+            "max_new_tokens": max_new_tokens or self.config.max_new_tokens,
             "pad_token_id": self.tokenizer.pad_token_id or self.tokenizer.eos_token_id,
             "eos_token_id": eos_ids if len(eos_ids) > 1 else self.tokenizer.eos_token_id,
+            "stopping_criteria": stop_criteria,
             "do_sample": do_sample,
         }
         if do_sample:
@@ -483,6 +506,11 @@ class ARESPipeline:
         input_len = inputs["input_ids"].shape[1]
         new_token_ids = gen_output[0][input_len:]
         new_text = self.tokenizer.decode(new_token_ids, skip_special_tokens=True)
+        # Clean up any trailing chat markers or artificial stop sequences
+        for stop_marker in ["<|im_end|>", "<|endoftext|>", "\n\nUser:", "\n\nQuestion:"]:
+            if stop_marker in new_text:
+                new_text = new_text.split(stop_marker)[0]
+        new_text = new_text.strip()
         tokens_generated = len(new_token_ids)
 
         return PipelineResult(

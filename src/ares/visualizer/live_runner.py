@@ -47,6 +47,7 @@ class VisualizerRunner:
         self.device = device
         self.pipeline = None
         self._is_live = False
+        self.init_error = None
 
         if not self.force_mock:
             self._try_init_live_pipeline()
@@ -71,10 +72,13 @@ class VisualizerRunner:
             )
             self.pipeline = ARESPipeline(config=config)
             self._is_live = True
+            self.init_error = None
         except Exception as e:
             # Fall back to high-fidelity mock mode
             self.pipeline = None
             self._is_live = False
+            self.init_error = str(e)
+            print(f"[VisualizerRunner] Note: Live pipeline initialization error: {e}")
 
     @property
     def is_live(self) -> bool:
@@ -84,7 +88,7 @@ class VisualizerRunner:
         self,
         prompt: str,
         strategy: str = "dynamic",
-        max_new_tokens: int = 128,
+        max_new_tokens: Optional[int] = None,
         temperature: float = 0.7,
         do_sample: bool = False,
     ) -> VisualizerExecutionResult:
@@ -98,7 +102,7 @@ class VisualizerRunner:
         self,
         prompt: str,
         strategy: str,
-        max_new_tokens: int,
+        max_new_tokens: Optional[int],
         temperature: float,
         do_sample: bool,
     ) -> VisualizerExecutionResult:

@@ -77,17 +77,18 @@ with st.sidebar:
     )
     force_mock = "Demo" in exec_mode
 
-    model_name = st.selectbox(
+    model_choice = st.selectbox(
         "Backbone Model",
         [
-            "Qwen/Qwen2.5-7B-Instruct",
-            "Qwen/Qwen2.5-1.5B-Instruct",
-            "Qwen/Qwen2.5-0.5B-Instruct",
-            "Qwen/Qwen2.5-0.5B",
+            "unsloth/Qwen2.5-7B-Instruct-bnb-4bit (Recommended: 7B 4-bit, 4.3GB)",
+            "Qwen/Qwen2.5-1.5B-Instruct (Fast 1.5B)",
+            "Qwen/Qwen2.5-0.5B-Instruct (0.5B Lightweight)",
+            "Qwen/Qwen2.5-0.5B (0.5B Base)",
         ],
         index=0,
-        help="7B runs with 4-bit NF4 quantization (~5.5GB VRAM) for maximum reasoning power on Kaggle T4 GPU.",
+        help="7B uses pre-quantized 4-bit NF4 weights (~4.3GB download, ~5.5GB VRAM) for maximum reasoning power on Kaggle T4 GPU.",
     )
+    model_name = model_choice.split(" ")[0]
 
     st.markdown("---")
     st.markdown("### 🧭 Routing & Gating Policy")
@@ -96,7 +97,7 @@ with st.sidebar:
         [
             "dynamic (ARES Learned Router)",
             "threshold (Dual Reliability Gated)",
-            "base (Frozen 0.5B Backbone)",
+            "base (Frozen Backbone)",
             "fixed_math (Fixed Math Expert)",
             "fixed_code (Fixed Code Expert)",
             "random (Random Stochastic Route)",
@@ -116,8 +117,8 @@ with st.sidebar:
     )
 
     st.markdown("---")
-    st.markdown("### 🎛️ Generation Hyperparameters")
-    max_tokens = st.slider("Max New Tokens", min_value=32, max_value=256, value=128, step=16)
+    st.markdown("### 🎛️ Generation Controls")
+    st.caption("⚡ **Dynamic Auto-Stopping**: Generation halts automatically the instant the answer is complete.")
     temperature = st.slider("Temperature", min_value=0.0, max_value=1.5, value=0.7, step=0.1)
     do_sample = st.checkbox("Enable Stochastic Sampling", value=False)
 
@@ -137,6 +138,9 @@ def get_runner(force_mock_mode: bool, selected_model: str):
     )
 
 runner = get_runner(force_mock, model_name)
+
+if not force_mock and not runner.is_live and runner.init_error:
+    st.sidebar.warning(f"⚠️ Note on live initialization: {runner.init_error[:100]}... (Using fast simulation mode)")
 
 # Top Banner
 render_header()
@@ -200,7 +204,7 @@ with tab1:
             result = runner.run(
                 prompt=user_prompt,
                 strategy=strat_clean,
-                max_new_tokens=max_tokens,
+                max_new_tokens=None,
                 temperature=temperature,
                 do_sample=do_sample,
             )
