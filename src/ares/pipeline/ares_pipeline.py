@@ -252,15 +252,26 @@ class ARESPipeline:
                         # Read r and alpha if present
                         cfg_path = exp_dir / "adapter_config.json"
                         r_val, alpha_val = 16, 32
+                        cfg_dict = {}
                         if cfg_path.exists():
                             import json
                             try:
                                 with open(cfg_path, "r") as f:
-                                    cd = json.load(f)
-                                r_val = cd.get("r", 16)
-                                alpha_val = cd.get("lora_alpha", 32)
+                                    cfg_dict = json.load(f)
+                                r_val = cfg_dict.get("r", 16)
+                                alpha_val = cfg_dict.get("lora_alpha", 32)
                             except Exception:
                                 pass
+
+                        # Skip adapters trained for a different backbone dimension
+                        backbone_hidden = getattr(self.backbone, "hidden_size", 896)
+                        adapter_in = cfg_dict.get("in_features", backbone_hidden)
+                        if adapter_in != backbone_hidden:
+                            print(
+                                f"[ARES Pipeline] Skipping adapter '{name}': "
+                                f"trained for dim {adapter_in} but backbone is {backbone_hidden}"
+                            )
+                            continue
 
                         lora_cfg = LoraConfig(
                             task_type=TaskType.CAUSAL_LM,
@@ -506,6 +517,7 @@ class ARESPipeline:
             "pad_token_id": self.tokenizer.pad_token_id or self.tokenizer.eos_token_id,
             "eos_token_id": eos_ids if len(eos_ids) > 1 else self.tokenizer.eos_token_id,
             "do_sample": do_sample,
+            "repetition_penalty": 1.2,
         }
         if do_sample:
             gen_kwargs["temperature"] = temperature
