@@ -27,6 +27,9 @@ dependencies = [
     "accelerate>=0.25",
     "numpy>=1.24",
     "safetensors>=0.4",
+    "streamlit>=1.28",
+    "plotly>=5.18",
+    "pandas>=2.0",
 ]
 
 [project.optional-dependencies]
