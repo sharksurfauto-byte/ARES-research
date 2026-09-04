@@ -241,28 +241,46 @@ class ARESPipeline:
                 if not exp_dir.exists():
                     exp_dir = ckpt_dir / name
 
-                if exp_dir.exists() and (exp_dir / "adapter_config.json").exists():
+                if exp_dir.exists() and (
+                    (exp_dir / "adapter_config.json").exists()
+                    or (exp_dir / "adapter_model.safetensors").exists()
+                    or (exp_dir / "adapter_model.bin").exists()
+                    or (exp_dir / f"expert_{name}.pt").exists()
+                ):
                     try:
+                        from peft import LoraConfig, TaskType
+                        # Read r and alpha if present
                         cfg_path = exp_dir / "adapter_config.json"
-                        import json
-                        with open(cfg_path, "r") as f:
-                            cfg_dict = json.load(f)
-                        if "peft_type" not in cfg_dict:
-                            cfg_dict["peft_type"] = "LORA"
-                            cfg_dict["task_type"] = "CAUSAL_LM"
-                            cfg_dict["bias"] = "none"
-                            with open(cfg_path, "w") as f:
-                                json.dump(cfg_dict, f, indent=2)
+                        r_val, alpha_val = 16, 32
+                        if cfg_path.exists():
+                            import json
+                            try:
+                                with open(cfg_path, "r") as f:
+                                    cd = json.load(f)
+                                r_val = cd.get("r", 16)
+                                alpha_val = cd.get("lora_alpha", 32)
+                            except Exception:
+                                pass
+
+                        lora_cfg = LoraConfig(
+                            task_type=TaskType.CAUSAL_LM,
+                            r=r_val,
+                            lora_alpha=alpha_val,
+                            lora_dropout=0.05,
+                            target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+                            bias="none",
+                        )
 
                         if not first_loaded:
                             self.peft_model = PeftModel.from_pretrained(
                                 raw_model,
                                 str(exp_dir),
                                 adapter_name=name,
+                                config=lora_cfg,
                             )
                             first_loaded = True
                         else:
-                            self.peft_model.load_adapter(str(exp_dir), adapter_name=name)
+                            self.peft_model.load_adapter(str(exp_dir), adapter_name=name, config=lora_cfg)
                     except Exception as err:
                         print(f"[ARES Pipeline] Note: Could not attach PEFT adapter '{name}': {err}")
 
