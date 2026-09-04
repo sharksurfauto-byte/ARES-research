@@ -373,13 +373,13 @@ with tab3:
     with col_breakdown:
         st.markdown("#### 🔍 Dual Reliability Formulations")
         st.markdown(
-            """
+            r"""
             * **Global Reliability $R(x)$**:
               $$R(x) = \sigma(W_r \cdot \text{TransformerEncoder}(h_{\text{multi-layer}}))$$
             * **Local Failure Risk**:
-              $$\\text{Risk}_{\\text{local}}(x) = \\frac{1}{T} \\sum_{t=1}^T \\text{LRM}(h_t)$$
+              $$\text{Risk}_{\text{local}}(x) = \frac{1}{T} \sum_{t=1}^T \text{LRM}(h_t)$$
             * **Composite Uncertainty $U(x)$**:
-              $$U(x) = 1 - (R(x) \\cdot (1 - \\text{Risk}_{\\text{local}}(x)))$$
+              $$U(x) = 1 - (R(x) \cdot (1 - \text{Risk}_{\text{local}}(x)))$$
             """
         )
         st.info("💡 When $U(x) > \\tau$, ARES triggers dynamic expert dispatch to rescue the backbone.")

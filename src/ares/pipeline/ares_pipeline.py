@@ -243,6 +243,17 @@ class ARESPipeline:
 
                 if exp_dir.exists() and (exp_dir / "adapter_config.json").exists():
                     try:
+                        cfg_path = exp_dir / "adapter_config.json"
+                        import json
+                        with open(cfg_path, "r") as f:
+                            cfg_dict = json.load(f)
+                        if "peft_type" not in cfg_dict:
+                            cfg_dict["peft_type"] = "LORA"
+                            cfg_dict["task_type"] = "CAUSAL_LM"
+                            cfg_dict["bias"] = "none"
+                            with open(cfg_path, "w") as f:
+                                json.dump(cfg_dict, f, indent=2)
+
                         if not first_loaded:
                             self.peft_model = PeftModel.from_pretrained(
                                 raw_model,
