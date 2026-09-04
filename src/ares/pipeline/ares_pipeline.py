@@ -465,17 +465,17 @@ class ARESPipeline:
         raw_model = getattr(self.backbone, "_model", getattr(self.backbone, "model", self.backbone))
 
         eos_ids = [self.tokenizer.eos_token_id]
-        im_end = self.tokenizer.encode("<|im_end|>", add_special_tokens=False)
-        if im_end and im_end[0] not in eos_ids:
-            eos_ids.append(im_end[0])
-
-        stop_criteria = StoppingCriteriaList([StopOnTokens(eos_ids)])
+        try:
+            im_end_id = self.tokenizer.convert_tokens_to_ids("<|im_end|>")
+            if isinstance(im_end_id, int) and im_end_id not in eos_ids and im_end_id > 0:
+                eos_ids.append(im_end_id)
+        except Exception:
+            pass
 
         gen_kwargs: Dict[str, Any] = {
             "max_new_tokens": max_new_tokens or self.config.max_new_tokens,
             "pad_token_id": self.tokenizer.pad_token_id or self.tokenizer.eos_token_id,
             "eos_token_id": eos_ids if len(eos_ids) > 1 else self.tokenizer.eos_token_id,
-            "stopping_criteria": stop_criteria,
             "do_sample": do_sample,
         }
         if do_sample:
