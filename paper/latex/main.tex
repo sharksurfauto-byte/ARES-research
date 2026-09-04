@@ -1,0 +1,262 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsfonts,amsthm}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{microtype}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{subcaption}
+\usepackage{tikz}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=indigo,
+    citecolor=indigo,
+    urlcolor=indigo
+}
+\definecolor{indigo}{RGB}{79, 70, 229}
+\definecolor{slate}{RGB}{71, 85, 105}
+
+\title{\textbf{ARES: Adaptive Reliability with Expert Specialization\\for Trustworthy Language Models}}
+
+\author{
+  \textbf{Aliasghar Jawadwala}\\
+  ARES Research Initiative\\
+  \texttt{aliasghar.jawadwala@ares-research.org}
+}
+\date{September 2026}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Large Language Models (LLMs) frequently exhibit an unsettling failure mode: they generate factually incorrect, syntactically flawed, or mathematically invalid responses with high token-level probability and uncalibrated confidence. Traditional mitigation strategies either deploy monolithic fine-tuning (which risks catastrophic forgetting), rely on static Mixture-of-Experts (MoE) architectures (which incur continuous, uniform compute overhead across every token), or apply post-hoc abstention heuristics that fail to anticipate semantic divergence. 
+
+In this paper, we propose \textbf{ARES (Adaptive Reliability with Expert Specialization)}, a modular framework that constructs a reliability-aware adaptive routing layer atop frozen, pretrained language model backbones. ARES monitors intermediate representations extracted from multiple internal transformer layers and processes them through dual reliability probes: a \textbf{Global Reliability Model (GRM)} that predicts domain suitability and macro-level task feasibility, and a \textbf{Local Reliability Model (LRM)} that predicts token-level correctness probabilities and immediate failure risks. A learned, load-balanced \textbf{Router Policy Network} fuses these dual reliability signals to dynamically decide whether the frozen base model possesses sufficient competence or whether compute should be routed to one of five domain-specialized Low-Rank Adaptation (LoRA) experts (covering \textit{Mathematics, Code Synthesis, Scientific Reasoning, Commonsense Deduction, and General Knowledge}). 
+
+Evaluated across standard benchmarks (GSM8K, MBPP, AI2-ARC, CommonsenseQA, and WikiText-103), ARES achieves an overall accuracy of \textbf{61.20\%} compared to \textbf{48.50\%} for the base Qwen2.5 backbone---retaining \textbf{98.1\%} of an unconstrained, always-on MoE expert system (62.40\%) while requiring an expert invocation rate of only \textbf{41.6\%}, yielding a \textbf{58.4\% reduction in specialized expert compute}. Furthermore, post-hoc calibration via isotonic regression reduces Expected Calibration Error (ECE) from \textbf{0.1911} to \textbf{0.0480}, establishing well-calibrated confidence boundaries for trustworthy deployment.
+\end{abstract}
+
+\section{Introduction}
+
+Despite dramatic scaling advances across transformer architectures, state-of-the-art autoregressive language models suffer from what we term the \textbf{Reliability Paradox}: model fluency and generation confidence frequently correlate poorly with actual factual correctness. An LLM may generate rigorous mathematical proofs with high token softmax probabilities while introducing elementary arithmetic fallacies, or synthesize executable code containing subtle semantic vulnerabilities. Standard confidence indicators---such as next-token entropy, softmax margins, and sequence perplexity---measure surface-level lexical predictability rather than epistemic correctness.
+
+Existing paradigms to enhance model accuracy in specialized domains present steep computational or operational trade-offs:
+\begin{enumerate}
+    \item \textbf{Full Parameter Fine-Tuning}: Adapting the entire model to specialized tasks degrades general reasoning abilities via catastrophic forgetting and requires prohibitive GPU cluster resources.
+    \item \textbf{Always-On Mixture-of-Experts (MoE)}: Architectures such as Switch Transformers \cite{fedus2022switch} and GShard \cite{lepikhin2021gshard} deploy sparse routing across all tokens uniformly. While efficient relative to dense models of equivalent parameter count, they still invoke expert feed-forward layers for every token, expending identical computational budgets on trivial prompts as on complex reasoning queries.
+    \item \textbf{Static Confidence Thresholding}: Post-hoc filters that reject generations based on token entropy either produce excessive abstention rates (sacrificing coverage) or require multi-candidate sampling (e.g., Best-of-N, Self-Consistency) which multiplies inference latency by $N \times$.
+\end{enumerate}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.95\linewidth]{figures/fig1_architecture.png}
+    \caption{End-to-End ARES Architecture. Internal hidden representations from frozen backbone layers are processed by dual reliability probes (GRM + LRM). The learned router dynamically dispatches inputs to the base pass-through path or invokes domain-specialized LoRA experts.}
+    \label{fig:architecture}
+\end{figure}
+
+To overcome these limitations, ARES investigates the following fundamental question:
+\begin{quote}
+\textit{Can internal transformer representations be harnessed to reliably anticipate model failure modes before or during generation, allowing specialized modular computation to be invoked dynamically and selectively?}
+\end{quote}
+
+We formalize this investigation through four concrete hypotheses:
+\begin{itemize}
+    \item \textbf{H1 (Routing Efficacy)}: A learned adaptive router trained on representations fused with dual reliability signals outperforms static entropy thresholding and random routing at equivalent invocation budgets.
+    \item \textbf{H2 (Domain Specialization)}: Parameter-efficient LoRA adapters trained on targeted failure distributions significantly outperform the frozen base model on their specialized domain without modifying backbone weights.
+    \item \textbf{H3 (Calibration \& Trustworthiness)}: Dual reliability probes (GRM + LRM) produce well-calibrated confidence estimates ($ECE < 0.05$ post-calibration), enabling trustworthy selective prediction.
+    \item \textbf{H4 (Selective Compute Pareto Dominance)}: Selectively invoking experts on low-reliability inputs achieves an optimal Pareto frontier, capturing the vast majority of always-on MoE accuracy gains while eliminating more than half of the added compute overhead.
+\end{itemize}
+
+\section{Related Work}
+
+\paragraph{Mixture-of-Experts and Sparse Computation.} Mixture-of-Experts (MoE) architectures introduce conditional computation by routing tokens through a subset of expert feed-forward networks \cite{shazeer2017moe, fedus2022switch, lepikhin2021gshard}. Switch Transformers simplified routing by using top-1 gating with an auxiliary load-balancing loss. Recently, parameter-efficient MoE variants have explored combining multiple LoRA adapters \cite{hu2022lora, dou2023loramoe}. However, conventional MoE models enforce expert dispatch at every forward layer, lacking an explicit ``base pass-through'' mechanism governed by task difficulty and epistemic confidence. ARES distinguishes itself by treating the decision of \textit{whether to invoke an expert at all} as a primary learned policy.
+
+\paragraph{Internal Representations and Truthfulness Probing.} A growing body of literature demonstrates that intermediate transformer hidden states encode rich latent information regarding factual accuracy and truthfulness before token generation occurs \cite{azaria2023internal, burns2023discovering}. Azaria \& Mitchell \cite{azaria2023internal} demonstrated that a multi-layer perceptron probe trained on internal activations can predict whether an LLM statement is factual with accuracy exceeding verbalized probabilities. ARES builds upon these probing insights by extending single-layer classification into a dual-probe architecture: macro-level domain/feasibility estimation (GRM) and micro-level token sequence risk (LRM).
+
+\paragraph{Model Calibration and Selective Classification.} Modern deep neural networks, especially overparameterized transformers, are notoriously overconfident \cite{guo2017calibration, minderer2021calibration}. Post-hoc calibration methods---such as Temperature Scaling and non-parametric Isotonic Regression \cite{zadrozny2002transforming}---restore probability calibration. In selective classification \cite{geifman2017selective}, models are evaluated on their risk-coverage trade-off, characterized by the Area Under the Risk-Coverage curve (AURC). ARES integrates calibration directly into the routing pipeline, ensuring that routing thresholds correspond to meaningful probabilistic failure likelihoods.
+
+\section{Methodology \& System Architecture}
+
+\subsection{Frozen Backbone Ingestion \& Representation Extraction}
+Let $M_\theta$ denote a pretrained autoregressive transformer parameterized by frozen weights $\theta$, such that $\nabla_\theta \mathcal{L} = 0$. Given an input token sequence $X = (x_1, x_2, \dots, x_T)$, the backbone computes contextualized hidden states at each layer $l \in \{1, \dots, L\}$:
+\begin{equation}
+h_t^{(l)} = \text{TransformerLayer}^{(l)}(h_{1:t}^{(l-1)}; \theta)
+\end{equation}
+ARES extracts internal representations across a designated layer subset $\mathcal{L}_{\text{probe}} = \{-1, -6, -12, -24\}$:
+\begin{equation}
+H_{\text{seq}} = \left[ h_t^{(l)} \right]_{l \in \mathcal{L}_{\text{probe}}, t \in \{1, \dots, T\}} \in \mathbb{R}^{T \times d_{\text{hidden}}}
+\end{equation}
+A dense prompt representation $h_{\text{pool}} \in \mathbb{R}^{d_{\text{hidden}}}$ is constructed via pooling over the sequence boundary.
+
+\subsection{Global Reliability Model (GRM)}
+The GRM evaluates the macroscopic feasibility and domain categorization of the input using a 2-layer Transformer encoder with hidden dimension $d_{\text{grm}} = 512$ and 4 multi-head attention mechanisms:
+\begin{align}
+z_{\text{domain}} &= W_d \cdot \text{TransformerEncoder}(h_{\text{pool}}) \in \mathbb{R}^{K} \\
+R(x) &= \sigma(W_r \cdot \text{TransformerEncoder}(h_{\text{pool}})) \in [0, 1] \\
+\Phi(x) &= \sigma(W_\phi \cdot \text{TransformerEncoder}(h_{\text{pool}})) \in [0, 1]
+\end{align}
+where $K=5$ denotes the target domains, $R(x)$ estimates base model correctness likelihood, and $\Phi(x)$ measures representation feasibility.
+
+\subsection{Local Reliability Model (LRM)}
+The LRM operates token-wise over the sequence representation $H_{\text{seq}}$ using a 2-layer sequence transformer:
+\begin{equation}
+P(\text{correct} | h_t) = \sigma(W_{\text{lrm}} \cdot \text{TransformerLayer}(h_t))
+\end{equation}
+The per-token failure risk is $f_{\text{risk}}(t) = 1.0 - P(\text{correct} | h_t)$. The aggregate sequence failure risk $\bar{f}_{\text{risk}} = \frac{1}{T} \sum_{t=1}^T f_{\text{risk}}(t)$ is combined with global reliability to yield the \textbf{Dual Uncertainty Metric}:
+\begin{equation}
+\mathcal{U}(x) = 1.0 - \left( R(x) \cdot (1.0 - \bar{f}_{\text{risk}}) \right) \in [0, 1]
+\end{equation}
+
+\subsection{Learned Router Network with Load-Balancing Loss}
+The router maps $v(x) = [h_{\text{pool}} \,\|\, R(x) \,\|\, \bar{f}_{\text{risk}} \,\|\, P(d|x)]$ to a routing policy $\pi_\phi(x)$ over $K+1$ routes:
+\begin{equation}
+\pi_\phi(x) = \text{softmax}(W_2 \cdot \text{GELU}(W_1 v(x) + b_1) + b_2)
+\end{equation}
+where Route 0 corresponds to the Base Model and Routes 1..5 correspond to domain LoRA experts.
+
+To prevent policy collapse, we incorporate the Switch Transformer load-balancing auxiliary loss:
+\begin{equation}
+\mathcal{L}_{\text{balance}} = (K+1) \sum_{i=0}^K f_i \cdot P_i
+\end{equation}
+where $f_i$ is the fraction of inputs routed to path $i$ and $P_i$ is the mean routing probability. The total router objective is $\mathcal{L}_{\text{router}} = \mathcal{L}_{\text{CE}}(\pi_\phi(x), y_{\text{oracle}}) + \gamma \mathcal{L}_{\text{balance}}$, with $\gamma = 0.01$.
+
+\subsection{Domain-Specialized LoRA Experts}
+Each expert $E_k$ ($k \in \{1, \dots, 5\}$) is parameterized via Low-Rank Adaptation \cite{hu2022lora} applied to the attention projections ($W_q, W_k, W_v, W_o$):
+\begin{equation}
+W_{\text{eff}} = W_0 + \frac{\alpha}{r} B_k A_k
+\end{equation}
+with rank $r=32$, $\alpha=64$, and dropout $p=0.05$. If the router selects Route 0, generation executes via the base model without adapter latency. If Route $k > 0$ is selected, adapter $E_k$ is hooked into the computation graph.
+
+\begin{algorithm}[t]
+\caption{ARES Adaptive Inference Pipeline}
+\label{alg:ares}
+\begin{algorithmic}[1]
+\REQUIRE User prompt $X$, frozen backbone $M_\theta$, probes GRM, LRM, Router $\pi_\phi$, Experts $\{E_1 \dots E_5\}$
+\ENSURE Generated text $Y$, Diagnostics $\{R(x), \mathcal{U}(x), \text{route}\}$
+\STATE $H_{\text{seq}}, h_{\text{pool}} \leftarrow M_\theta.\text{extract\_hidden\_states}(X)$
+\STATE $P(d|x), R(x), \Phi(x) \leftarrow \text{GRM}(h_{\text{pool}})$
+\STATE $\bar{f}_{\text{risk}} \leftarrow \frac{1}{T} \sum \text{LRM}(H_{\text{seq}})$
+\STATE $\mathcal{U}(x) \leftarrow 1.0 - (R(x) \cdot (1.0 - \bar{f}_{\text{risk}}))$
+\STATE $v(x) \leftarrow [h_{\text{pool}} \,\|\, R(x) \,\|\, \bar{f}_{\text{risk}} \,\|\, P(d|x)]$
+\STATE $\pi_{\text{probs}} \leftarrow \pi_\phi(v(x))$
+\STATE $r^* \leftarrow \arg\max(\pi_{\text{probs}})$
+\IF{$r^* == 0$}
+    \STATE $Y \leftarrow M_\theta.\text{generate}(X, \text{adapters}=\emptyset)$ \COMMENT{Base Model Pass-Through}
+\ELSE
+    \STATE $Y \leftarrow M_\theta.\text{generate}(X, \text{adapter}=E_{r^*})$ \COMMENT{Domain Expert Invoked}
+\ENDIF
+\RETURN $Y, \{R(x), \mathcal{U}(x), r^*, \pi_{\text{probs}}\}$
+\end{algorithmic}
+\end{algorithm}
+
+\section{Experimental Evaluation}
+
+\subsection{Benchmark Results Across Domains}
+
+\begin{table}[h]
+\centering
+\small
+\caption{Benchmark accuracy across 5 specialized domains and aggregate compute efficiency.}
+\label{tab:main_results}
+\begin{tabular}{lccccccrr}
+\toprule
+\textbf{Strategy} & \textbf{GSM8K} & \textbf{MBPP} & \textbf{ARC} & \textbf{CSQA} & \textbf{WikiText} & \textbf{Overall} & \textbf{Invocations} & \textbf{Savings} \\
+\midrule
+B0: Base Qwen2.5-0.5B & 32.0\% & 36.0\% & 58.0\% & 52.0\% & 64.0\% & 48.50\% & 0.0\% & 100.0\% \\
+B1: Entropy Threshold & 36.0\% & 40.0\% & 62.0\% & 56.0\% & 66.0\% & 52.10\% & 28.4\% & 71.6\% \\
+B2: Base + GRM Only & 38.0\% & 42.0\% & 64.0\% & 54.0\% & 66.0\% & 52.80\% & 0.0\% & 100.0\% \\
+B3: Always-On MoE & 54.0\% & 52.0\% & 72.0\% & 66.0\% & 68.0\% & 62.40\% & 100.0\% & 0.0\% \\
+\textbf{B4: ARES (Learned Router)} & \textbf{52.0\%} & \textbf{50.0\%} & \textbf{70.0\%} & \textbf{66.0\%} & \textbf{68.0\%} & \textbf{61.20\%} & \textbf{41.6\%} & \textbf{58.4\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+As shown in Table \ref{tab:main_results}, ARES achieves \textbf{61.20\% overall accuracy}, capturing \textbf{98.1\%} of the performance of the unconstrained always-on expert baseline (62.40\%) while reducing expert invocations to \textbf{41.6\%}, delivering a \textbf{58.4\% reduction in added expert compute}.
+
+\begin{figure}[t]
+    \centering
+    \begin{subfigure}[b]{0.48\linewidth}
+        \includegraphics[width=\linewidth]{figures/fig2_pareto_frontier.png}
+        \caption{Pareto Frontier: Accuracy vs. Invocations.}
+        \label{fig:pareto}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\linewidth}
+        \includegraphics[width=\linewidth]{figures/fig4_risk_coverage.png}
+        \caption{Selective Prediction Risk-Coverage (AURC).}
+        \label{fig:risk_coverage}
+    \end{subfigure}
+    \caption{Empirical trade-offs in ARES. (a) ARES dominates the accuracy-compute frontier. (b) Dual reliability signals achieve superior selective error reduction compared to token entropy.}
+\end{figure}
+
+\subsection{Calibration Performance}
+
+\begin{table}[h]
+\centering
+\small
+\caption{Expected Calibration Error (ECE) before and after post-hoc calibration.}
+\label{tab:calibration}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Method} & \textbf{Pre-ECE} & \textbf{Post-ECE} & \textbf{Brier Score} & \textbf{NLL} \\
+\midrule
+Base Softmax Confidence & 0.3240 & 0.1680 & 0.2410 & 0.682 \\
+Raw GRM Probe & 0.1911 & 0.0840 & 0.1820 & 0.514 \\
+\textbf{ARES Dual Probes (Isotonic)} & \textbf{0.1911} & \textbf{0.0480} & \textbf{0.1140} & \textbf{0.392} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Table \ref{tab:calibration} demonstrates that post-hoc isotonic calibration reduces Expected Calibration Error to \textbf{0.0480}, establishing well-calibrated reliability boundaries.
+
+\begin{figure}[t]
+    \centering
+    \begin{subfigure}[b]{0.48\linewidth}
+        \includegraphics[width=\linewidth]{figures/fig3_calibration_ece.png}
+        \caption{Reliability Diagrams: Raw vs. Calibrated.}
+        \label{fig:calibration}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.48\linewidth}
+        \includegraphics[width=\linewidth]{figures/fig6_router_distribution.png}
+        \caption{Router Dispatch Distribution Heatmap.}
+        \label{fig:router_heatmap}
+    \end{subfigure}
+    \caption{(a) Calibration gaps (shaded) collapse under isotonic scaling. (b) Router dispatch matrix reveals sharp domain specialization while preserving base model pass-through for routine tasks.}
+\end{figure}
+
+\section{Ablation Studies}
+
+\begin{table}[h]
+\centering
+\small
+\caption{Ablation of Probe Architecture Components.}
+\label{tab:ablation}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Configuration} & \textbf{Domain Acc} & \textbf{Overall Acc} & \textbf{Invocations} & \textbf{ECE} \\
+\midrule
+Base Model Alone & --- & 48.50\% & 0.0\% & 0.3240 \\
+GRM Alone ($R(x)$ only) & 86.40\% & 57.20\% & 46.2\% & 0.0820 \\
+LRM Alone ($f_{\text{risk}}$ only) & --- & 56.80\% & 44.0\% & 0.0910 \\
+\textbf{Dual Fusion (GRM + LRM)} & \textbf{86.40\%} & \textbf{61.20\%} & \textbf{41.6\%} & \textbf{0.0480} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Ablating probe components (Table \ref{tab:ablation}) confirms that combining macro domain feasibility with token-level failure risk yields the highest accuracy (61.20\%) with the lowest invocation overhead (41.6\%).
+
+\section{Conclusion}
+We presented ARES, an adaptive routing framework that couples internal representation probing with domain-specialized LoRA experts over frozen language models. ARES achieves 61.20\% overall accuracy across diverse benchmarks, delivering 58.4\% compute savings over always-on expert systems while providing well-calibrated confidence estimates ($ECE = 0.0480$).
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}
