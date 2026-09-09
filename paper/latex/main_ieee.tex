@@ -139,7 +139,10 @@ R(x) &= \sigma(W_r \cdot \text{TransformerEncoder}(h_{\text{pool}})) \in [0, 1] 
 \end{align}
 where $K=5$ denotes the target domains, $P(d|x) = \text{softmax}(z_{\text{domain}})$, $R(x)$ estimates base model success likelihood, and $\Phi(x)$ measures representation feasibility. The GRM objective is:
 \begin{equation}
-\mathcal{L}_{\text{GRM}} = \mathcal{L}_{\text{CE}}(z_{\text{domain}}, y_{\text{domain}}) + \lambda_1 \mathcal{L}_{\text{BCE}}(R(x), y_{\text{acc}}) + \lambda_2 \mathcal{L}_{\text{BCE}}(\Phi(x), y_{\text{feas}})
+\begin{split}
+\mathcal{L}_{\text{GRM}} &= \mathcal{L}_{\text{CE}}(z_{\text{domain}}, y_{\text{domain}}) + \lambda_1 \mathcal{L}_{\text{BCE}}(R(x), y_{\text{acc}}) \\
+&\quad + \lambda_2 \mathcal{L}_{\text{BCE}}(\Phi(x), y_{\text{feas}})
+\end{split}
 \end{equation}
 with $\lambda_1 = 1.0, \lambda_2 = 0.5$.
 
@@ -216,7 +219,8 @@ coupled with dual native stop tokens $\mathcal{T}_{\text{eos}} = \{151643, 15164
 \centering
 \caption{Multi-Domain Benchmark Evaluation Across Baseline Strategies (250 Test Queries on NVIDIA T4 Hardware).}
 \label{tab:main_results}
-\begin{tabularx}{\textwidth}{lccccccccr}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lccccccccr}
 \toprule
 \textbf{Strategy} & \textbf{GSM8K (Math)} & \textbf{MBPP (Code)} & \textbf{AI2-ARC (Sci)} & \textbf{CSQA (Reas)} & \textbf{WikiText (Gen)} & \textbf{Overall Acc} & \textbf{Invocations} & \textbf{Compute Savings} & \textbf{Mean Latency} \\
 \midrule
@@ -230,7 +234,8 @@ B3: Always-On MoE & 54.0\% & 52.0\% & 72.0\% & 66.0\% & 68.0\% & 62.40\% & 100.0
 \textbf{B4: ARES (Learned Router)} & \textbf{52.0\%} & \textbf{50.0\%} & \textbf{70.0\%} & \textbf{66.0\%} & \textbf{68.0\%} & \textbf{61.20\%} & \textbf{41.6\%} & \textbf{58.4\%} & \textbf{2620.9 ms} \\
 Oracle Router (Upper Bound) & 56.0\% & 54.0\% & 74.0\% & 68.0\% & 70.0\% & 64.40\% & 100.0\% & 0.0\% & 2620.5 ms \\
 \bottomrule
-\end{tabularx}
+\end{tabular}%
+}
 \end{table*}
 
 \section{Architectural Exploration \& Ablation Studies}
@@ -246,11 +251,12 @@ We ablated intermediate layer subsets to determine optimal representations for r
 \end{itemize}
 
 \subsection{Probe Architecture Comparison}
-We compared three candidate probe architectures on identical harvested representation tensors:
+We compared three candidate probe architectures on identical harvested representation tensors (Table~\ref{tab:probe_architectures}):
 \begin{table}[h]
 \centering
 \caption{Comparison of Candidate Probe Architectures.}
 \label{tab:probe_architectures}
+\resizebox{\columnwidth}{!}{%
 \begin{tabular}{lccc}
 \toprule
 \textbf{Probe Architecture} & \textbf{Domain Acc} & \textbf{Probe Latency} & \textbf{Params} \\
@@ -259,7 +265,8 @@ Linear Probe & 72.40\% & \textbf{0.4 ms} & 4.5K \\
 2-Layer MLP (ReLU) & 79.80\% & 1.2 ms & 235K \\
 \textbf{2-Layer Transformer (4 Heads)} & \textbf{86.40\%} & 4.8 ms & 1.05M \\
 \bottomrule
-\end{tabular}
+\end{tabular}%
+}
 \end{table}
 The 2-layer Transformer encoder provides superior cross-attention between pooled hidden dimensions, justifying its modest 4.8 ms latency footprint.
 
@@ -318,6 +325,7 @@ Table~\ref{tab:calibration} summarizes calibration metrics before and after post
 \centering
 \caption{Expected Calibration Error (ECE) and Probabilistic Scoring.}
 \label{tab:calibration}
+\resizebox{\columnwidth}{!}{%
 \begin{tabular}{lcccc}
 \toprule
 \textbf{Method} & \textbf{Pre-ECE} & \textbf{Post-ECE} & \textbf{Brier Score} & \textbf{NLL} \\
@@ -326,7 +334,8 @@ Base Softmax Confidence & 0.3240 & 0.1680 & 0.2410 & 0.682 \\
 Raw GRM Probe Output & 0.1911 & 0.0840 & 0.1820 & 0.514 \\
 \textbf{ARES Dual Probes (Isotonic)} & \textbf{0.1911} & \textbf{0.0480} & \textbf{0.1140} & \textbf{0.392} \\
 \bottomrule
-\end{tabular}
+\end{tabular}%
+}
 \end{table}
 
 As shown in Fig.~\ref{fig:calibration}, the calibration gap of the raw probe ($ECE = 0.1911$) collapses to \textbf{$ECE = 0.0480$} following isotonic regression. This confirms \textbf{Hypothesis 3}, establishing that ARES reliability scores correspond to dependable error probabilities.
@@ -374,15 +383,15 @@ Future work will investigate token-level expert interleaving during multi-step r
 The author expresses sincere appreciation to the faculty and mentors at the School of Computing Sciences, Hindustan Institute of Technology and Science (HITS), Chennai, for their guidance and institutional support throughout the development and evaluation of the ARES framework. Computational resources for distributed training and benchmarking on NVIDIA T4 GPUs were facilitated through Kaggle's accelerated research environments.
 
 % Last page column balancing:
-% Automatic balancing via the balance package:
-\balance
-% IEEEtran native manual trigger alternative (uncomment if you want a fixed break at ref [16]):
-%\IEEEtriggeratref{16}
+% IEEEtran native trigger guarantees clean column break without splitting citations:
+\IEEEtriggeratref{16}
+%\balance
 \bibliographystyle{IEEEtran}
 \bibliography{references}
 
 \begin{IEEEbiographynophoto}{Aliasghar Jawadwala}
 is currently pursuing his undergraduate studies in the School of Computing Sciences at Hindustan Institute of Technology and Science (HITS), Chennai, India. His research interests encompass trustworthy artificial intelligence, efficient language model architectures, Mixture-of-Experts (MoE) routing policies, parameter-efficient fine-tuning (PEFT), and probabilistic uncertainty calibration in deep neural networks.
 \end{IEEEbiographynophoto}
+\vfill
 
 \end{document}

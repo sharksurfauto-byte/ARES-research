@@ -165,7 +165,7 @@ def plot_fig2_pareto_frontier():
     ax.set_ylim(44, 66)
     ax.axvspan(0, 45, color="#10b981", alpha=0.06, label="Low-Compute Operating Region")
 
-    ax.set_title("Figure 2: Accuracy vs. Compute Pareto Frontier Across Strategies", pad=12, fontweight="bold")
+    ax.set_title("Accuracy vs. Compute Pareto Frontier Across Strategies", pad=12, fontweight="bold")
     ax.legend(loc="lower right", framealpha=0.95)
     save_fig(fig, "fig2_pareto_frontier.png")
 
@@ -201,7 +201,7 @@ def plot_fig3_calibration_ece():
         ax.set_title(f"{title}\n$ECE = {ece:.4f}$", fontweight="bold")
         ax.legend(loc="upper left")
 
-    plt.suptitle("Figure 3: Reliability Diagrams & Expected Calibration Error (ECE)", y=1.02, fontsize=13, fontweight="bold")
+    plt.suptitle("Reliability Diagrams & Expected Calibration Error (ECE)", y=1.02, fontsize=13, fontweight="bold")
     save_fig(fig, "fig3_calibration_ece.png")
 
 
@@ -233,7 +233,7 @@ def plot_fig4_risk_coverage():
         bbox=dict(boxstyle="round,pad=0.3", fc="#e0e7ff", ec=PRIMARY_COLOR)
     )
 
-    ax.set_title("Figure 4: Selective Prediction Risk-Coverage Curve Across Abstention Thresholds", pad=12, fontweight="bold")
+    ax.set_title("Selective Prediction Risk-Coverage Curve (AURC)", pad=12, fontweight="bold")
     ax.legend(loc="upper left")
     save_fig(fig, "fig4_risk_coverage.png")
 
@@ -255,7 +255,7 @@ def plot_fig5_domain_breakdown():
     rects3 = ax.bar(x + width, ares_scores, width, label="B4: ARES Adaptive Routing (41.6% Invocations)", color=PRIMARY_COLOR, edgecolor="#1e293b")
 
     ax.set_ylabel("Accuracy (%)", fontweight="bold")
-    ax.set_title("Figure 5: Benchmark Accuracy Across 5 Specialized Domains", pad=12, fontweight="bold")
+    ax.set_title("Benchmark Accuracy Across Specialized Domains", pad=12, fontweight="bold")
     ax.set_xticks(x)
     ax.set_xticklabels(domains, fontweight="semibold")
     ax.set_ylim(0, 85)
@@ -293,7 +293,7 @@ def plot_fig6_router_distribution():
         ax=ax, linewidths=1.0, linecolor="#cbd5e1"
     )
 
-    ax.set_title("Figure 6: Router Dispatch Matrix: Input Domain vs. Selected Route (%)", pad=12, fontweight="bold")
+    ax.set_title("Router Dispatch Matrix: Input Domain vs. Selected Route (%)", pad=12, fontweight="bold")
     ax.set_xlabel("Selected Route Path (Base vs. Domain Expert)", fontweight="bold")
     ax.set_ylabel("True Input Domain", fontweight="bold")
     plt.xticks(rotation=25, ha="right")
@@ -302,13 +302,18 @@ def plot_fig6_router_distribution():
 
 def main():
     print("Generating publication figures for ARES Research Paper & Technical Report...")
-    plot_fig1_architecture()
+    # Preserve custom Eraser.io fig1 if present
+    custom_fig1 = Path(__file__).parent.parent / "paper" / "figures" / "fig1_architecture.png"
+    if not custom_fig1.exists() or custom_fig1.stat().st_size < 100000:
+        plot_fig1_architecture()
+    else:
+        print(f"Preserving custom vector architecture diagram: {custom_fig1}")
     plot_fig2_pareto_frontier()
     plot_fig3_calibration_ece()
     plot_fig4_risk_coverage()
     plot_fig5_domain_breakdown()
     plot_fig6_router_distribution()
-    print("All 6 figures successfully generated!")
+    print("All figures successfully updated!")
 
 
 if __name__ == "__main__":
