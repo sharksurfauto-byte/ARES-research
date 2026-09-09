@@ -2,7 +2,7 @@
 
 **Aliasghar Jawadwala**  
 *School of Computing Sciences, Hindustan Institute of Technology and Science (HITS), Chennai, Tamil Nadu, India*  
-`24cu0330065@student.hindustanuniv.ac.in`  
+`24cu0330065@student.hindustanuniv.ac.in`, `sharksurfauto@gmail.com`  
 *Target: IEEE Transactions on Neural Networks and Learning Systems (TNNLS) / IEEE Transactions on Artificial Intelligence (TAI)*  
 *September 2026*
 
