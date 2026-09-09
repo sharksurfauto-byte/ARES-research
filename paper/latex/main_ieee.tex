@@ -16,6 +16,7 @@
 \fi
 \usepackage{tabularx}
 \usepackage{xcolor}
+\usepackage{balance}
 \usepackage[hidelinks]{hyperref}
 
 % Standard theorem styling for IEEEtran
@@ -369,6 +370,14 @@ This paper introduced \textbf{ARES (Adaptive Reliability with Expert Specializat
 
 Future work will investigate token-level expert interleaving during multi-step reasoning and cross-architecture probe transferability across LLaMA and Gemma backbones.
 
+\section*{Acknowledgment}
+The author expresses sincere appreciation to the faculty and mentors at the School of Computing Sciences, Hindustan Institute of Technology and Science (HITS), Chennai, for their guidance and institutional support throughout the development and evaluation of the ARES framework. Computational resources for distributed training and benchmarking on NVIDIA T4 GPUs were facilitated through Kaggle's accelerated research environments.
+
+% Last page column balancing:
+% Automatic balancing via the balance package:
+\balance
+% IEEEtran native manual trigger alternative (uncomment if you want a fixed break at ref [16]):
+%\IEEEtriggeratref{16}
 \bibliographystyle{IEEEtran}
 \bibliography{references}
 
