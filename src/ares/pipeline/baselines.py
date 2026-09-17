@@ -11,6 +11,7 @@ Implements systematic evaluation across routing strategies:
 
 from __future__ import annotations
 
+import sys
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
@@ -224,7 +225,7 @@ class BaselineComparator:
 
         for i, sample in enumerate(samples):
             if verbose and (i % 10 == 0 or i == n - 1):
-                print(f"[ARES Baselines] Processing sample {i+1}/{n} (domain: {sample.domain})...")
+                print(f"[ARES Baselines] Processing sample {i+1}/{n} (domain: {sample.domain})...", flush=True)
 
             sample_res = self.evaluate_sample(sample, max_new_tokens=max_new_tokens)
             results.append(sample_res)
@@ -234,6 +235,6 @@ class BaselineComparator:
                     checkpoint_callback(results, i + 1, n)
                 except Exception as e:
                     if verbose:
-                        print(f"[ARES Baselines] Checkpoint callback warning: {e}")
+                        print(f"[ARES Baselines] Checkpoint callback warning: {e}", flush=True)
 
         return results

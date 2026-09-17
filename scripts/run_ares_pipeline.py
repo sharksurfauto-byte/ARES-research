@@ -377,7 +377,7 @@ def run_benchmark_evaluation(pipeline: ARESPipeline, args):
                 all_current = saved_results + current_batch_results
                 save_incremental_checkpoint(ckpt_path, all_current, metadata)
                 pct = (len(all_current) / len(samples)) * 100.0 if len(samples) > 0 else 100.0
-                print(f"[ARES Checkpoint] Progress saved: {len(all_current)}/{len(samples)} samples ({pct:.1f}%) -> {ckpt_path}")
+                print(f"[ARES Checkpoint] Progress saved: {len(all_current)}/{len(samples)} samples ({pct:.1f}%) -> {ckpt_path}", flush=True)
 
         newly_evaluated = comparator.evaluate_batch(
             remaining_samples,
