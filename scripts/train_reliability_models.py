@@ -91,8 +91,12 @@ def load_representations(input_dir: str) -> dict[str, torch.Tensor]:
         Dictionary with train/val tensors
     """
     input_path = Path(input_dir)
-    train_pt = input_path / "train.pt"
-    val_pt = input_path / "val.pt"
+    if input_path.is_file():
+        train_pt = input_path
+        val_pt = input_path.parent / "val.pt"
+    else:
+        train_pt = input_path / "train.pt"
+        val_pt = input_path / "val.pt"
 
     # 1. Check for standard train.pt & val.pt partitions from RepresentationDataset
     if train_pt.exists():

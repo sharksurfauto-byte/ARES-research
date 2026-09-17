@@ -208,7 +208,10 @@ def load_or_generate_dataset(
     # 1. Try loading from representations_file or data_dir
     target_files = [
         representations_file,
+        data_dir / "train.pt",
         data_dir / "representations.pt",
+        data_dir / "val.pt",
+        Path("representations/multi_domain") / "train.pt",
         Path("representations") / "representations.pt",
     ]
 
@@ -228,18 +231,8 @@ def load_or_generate_dataset(
         reps = tensors["representations"]
         domains = tensors["domain_labels"]
         correctness = tensors["feasibility_labels"]
-
-        # Ensure representation dim matches expected input_dim
-        if reps.size(-1) != input_dim:
-            print(
-                f"  Note: Representation dim is {reps.size(-1)}, projecting/slicing to {input_dim}"
-            )
-            if reps.size(-1) > input_dim:
-                reps = reps[:, :input_dim]
-            else:
-                padding = torch.zeros(reps.size(0), input_dim - reps.size(-1))
-                reps = torch.cat([reps, padding], dim=-1)
-
+        actual_dim = reps.size(-1)
+        print(f"  Using harvested representation feature dimension: {actual_dim}")
         return reps, domains, correctness
 
     # 2. Multi-domain dataset fallback with domain signals
@@ -441,6 +434,9 @@ def main() -> None:
         n_samples_per_domain=64,
         device=device,
     )
+    # Dynamically adapt router input dimension to actual representations (e.g. 896 or 3584)
+    input_dim = reps.size(-1)
+    print(f"  Router dynamically configured with input_dim = {input_dim}")
 
     if args.n_samples is not None and len(reps) > args.n_samples:
         reps = reps[: args.n_samples]
@@ -530,8 +526,11 @@ def main() -> None:
         epoch=epochs,
         metrics=final_metrics,
     )
+    import shutil
+    best_path = output_path / "router_best.pt"
+    shutil.copyfile(saved_path, best_path)
     size_mb = os.path.getsize(saved_path) / (1024 * 1024)
-    print(f"\nSaved verified router checkpoint to: {saved_path} ({size_mb:.2f} MB)")
+    print(f"\nSaved verified router checkpoint to: {saved_path} and {best_path} ({size_mb:.2f} MB)")
 
     # 8. Post-training Routing Distribution Check
     print("\nFinal Routing Distribution on Validation Set:")

@@ -122,6 +122,7 @@ class ARESPipeline:
         self.grm = grm
         self.lrm = lrm
         self.expert_manager = expert_manager
+        self.peft_model = None
         
         # Load components if not supplied
         if self.backbone is None or self.tokenizer is None or self.grm is None or self.expert_manager is None:
@@ -142,18 +143,22 @@ class ARESPipeline:
             dev_str = str(self.device)
             use_4bit = is_7b and dev_str != "cpu"
 
-            backbone_cfg = BackboneConfig(
-                name=self.config.model_name,
-                device_map="auto" if use_4bit else (None if dev_str != "cpu" else "cpu"),
+            self.backbone = load_backbone(
+                self.config.model_name,
+                device=self.device,
                 load_in_4bit=use_4bit,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype="float16",
-                use_cache=False,
-                attn_implementation="eager",
+                device_map="auto" if use_4bit else (None if dev_str != "cpu" else "cpu"),
             )
-            self.backbone = load_backbone(backbone_cfg, device=self.device)
 
-        hidden_dim = self.config.hidden_dim or getattr(self.backbone, "hidden_size", 896)
+        # Dynamically detect hidden dimension from loaded backbone
+        detected_dim = getattr(self.backbone, "hidden_size", None)
+        if detected_dim is None and hasattr(self.backbone, "model") and hasattr(self.backbone.model, "config"):
+            detected_dim = getattr(self.backbone.model.config, "hidden_size", None)
+        if detected_dim is None and hasattr(self.backbone, "_model") and hasattr(self.backbone._model, "config"):
+            detected_dim = getattr(self.backbone._model.config, "hidden_size", None)
+
+        hidden_dim = self.config.hidden_dim or detected_dim or (3584 if "7b" in self.config.model_name.lower() else 896)
+        self.config.hidden_dim = hidden_dim
 
         # 2. GRM
         if self.grm is None:
@@ -470,8 +475,14 @@ class ARESPipeline:
                 formatted_prompt = prompt
 
         raw_inputs = self.tokenizer(formatted_prompt, return_tensors="pt")
+        target_device = self.device
+        if hasattr(self.backbone, "get_device"):
+            try:
+                target_device = self.backbone.get_device()
+            except Exception:
+                target_device = self.device
         inputs = {
-            k: v.to(self.device) if hasattr(v, "to") else v
+            k: v.to(target_device) if hasattr(v, "to") else v
             for k, v in raw_inputs.items()
         }
 

@@ -32,37 +32,82 @@ def load_backbone(config_or_name: Any, **kwargs) -> Backbone:
     if isinstance(config_or_name, str):
         device = kwargs.pop("device", "cuda" if torch.cuda.is_available() else "cpu")
         device_str = device.type if isinstance(device, torch.device) else str(device)
+        is_cpu = device_str == "cpu"
+        is_7b = "7b" in config_or_name.lower() or "8b" in config_or_name.lower()
+
+        # Determine if 4-bit quantization should be active:
+        # Activated when requested explicitly, or when 7B/4bit is indicated and not running on CPU
+        requested_4bit = kwargs.pop(
+            "load_in_4bit",
+            "4bit" in config_or_name.lower() or (is_7b and not is_cpu),
+        )
+        load_in_4bit = bool(requested_4bit and not is_cpu)
+
+        # Determine precision dtype on GPU
+        if is_cpu:
+            default_dtype = "float32"
+        elif torch.cuda.is_available() and torch.cuda.is_bf16_supported():
+            default_dtype = "bfloat16"
+        else:
+            default_dtype = "float16"
+
+        torch_dtype = kwargs.pop("torch_dtype", default_dtype)
+        if torch_dtype == "bfloat16" and torch.cuda.is_available() and not torch.cuda.is_bf16_supported():
+            logger.warning("bfloat16 requested but not supported on this GPU. Falling back to float16.")
+            torch_dtype = "float16"
+
+        # Bitsandbytes requires device_map when load_in_4bit=True
+        if load_in_4bit:
+            device_map = kwargs.pop("device_map", "auto")
+            if device_map is None:
+                device_map = "auto"
+        else:
+            device_map = kwargs.pop("device_map", None)
+
+        bnb_compute = kwargs.pop(
+            "bnb_4bit_compute_dtype",
+            torch_dtype if torch_dtype != "float32" else "float16",
+        )
+        if bnb_compute == "bfloat16" and torch.cuda.is_available() and not torch.cuda.is_bf16_supported():
+            bnb_compute = "float16"
+
         cfg_dict = {
             "name": config_or_name,
             "revision": kwargs.pop("revision", "main"),
-            # Use float16 (not bfloat16) — T4/V100 don't support bf16 natively
-            # and silently upcast to float32, doubling VRAM usage.
-            "torch_dtype": "float32" if device_str == "cpu" else "float16",
-            # device_map=None avoids accelerate dispatch entirely.
-            # We'll .to(device) explicitly after loading.
-            "device_map": None,
+            "torch_dtype": torch_dtype,
+            "device_map": device_map,
             "use_cache": False,
             "attn_implementation": "eager",
-            "load_in_4bit": (
-                False
-                if device_str == "cpu"
-                else ("7B" in config_or_name and "4bit" in config_or_name)
-            ),
+            "load_in_4bit": load_in_4bit,
             "bnb_4bit_quant_type": "nf4",
-            "bnb_4bit_compute_dtype": "float16",
+            "bnb_4bit_compute_dtype": bnb_compute,
             "use_peft": False,
-            # Gradient checkpointing is a TRAINING optimization.
-            # Disable by default; scripts that train can enable it explicitly.
             "gradient_checkpointing": False,
             "hidden_state_layers": (-1, -6, -12, -24),
         }
-        # Allow callers to override (e.g. gradient_checkpointing=True for training)
+        # Allow callers to override remaining keys
         cfg_dict.update(kwargs)
         config = config_or_name_to_config = BackboneConfig.from_dict(cfg_dict)
         config._device_str = device_str  # stash for .to() later
     else:
         config = config_or_name
         config._device_str = getattr(config, "_device_str", None)
+        is_cpu = getattr(config, "_device_str", None) == "cpu"
+        is_7b = "7b" in config.name.lower() or "8b" in config.name.lower()
+
+        # If 7B on GPU without explicit load_in_4bit, default to 4-bit
+        if is_7b and not is_cpu and torch.cuda.is_available() and not getattr(config, "load_in_4bit", False):
+            config.load_in_4bit = True
+
+        # Ensure device_map is set when 4-bit is enabled (bitsandbytes requirement)
+        if config.load_in_4bit and getattr(config, "device_map", None) is None:
+            config.device_map = "auto"
+
+        # Check bfloat16 hardware compatibility
+        if getattr(config, "torch_dtype", None) == "bfloat16" and torch.cuda.is_available() and not torch.cuda.is_bf16_supported():
+            config.torch_dtype = "float16"
+        if getattr(config, "bnb_4bit_compute_dtype", None) == "bfloat16" and torch.cuda.is_available() and not torch.cuda.is_bf16_supported():
+            config.bnb_4bit_compute_dtype = "float16"
 
     logger.info(f"Loading backbone: {config.name}")
 

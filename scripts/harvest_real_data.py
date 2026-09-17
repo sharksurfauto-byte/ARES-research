@@ -97,6 +97,12 @@ def parse_args():
         default=48,
         help="Max new tokens to generate for evaluation",
     )
+    parser.add_argument(
+        "--load_in_4bit",
+        action="store_true",
+        default=None,
+        help="Force 4-bit NF4 quantization (default: auto-detected if 7B/4bit)",
+    )
     return parser.parse_args()
 
 
@@ -118,14 +124,25 @@ def main():
 
     # 1. Load Backbone Model & Tokenizer
     logger.info(f"Loading backbone model: {args.model_name}")
-    backbone = load_backbone(args.model_name, device=device)
+    is_7b = any(tag in args.model_name.lower() for tag in ["7b", "8b"])
+    load_in_4bit = args.load_in_4bit if args.load_in_4bit is not None else (is_7b and str(device) != "cpu")
+
+    backbone = load_backbone(
+        args.model_name,
+        device=device,
+        load_in_4bit=load_in_4bit,
+        device_map="auto" if load_in_4bit else None,
+    )
     raw_model = getattr(backbone, "model", getattr(backbone, "_model", backbone))
     if hasattr(raw_model, "eval"):
         raw_model.eval()
     # Disable gradient checkpointing for pure inference (saves overhead)
     if hasattr(raw_model, "gradient_checkpointing_disable"):
         raw_model.gradient_checkpointing_disable()
-    logger.info(f"Model device: {next(raw_model.parameters()).device}")
+
+    model_device = getattr(backbone, "get_device", lambda: device)()
+    hidden_dim = getattr(backbone, "hidden_size", 896)
+    logger.info(f"Model device: {model_device} | Hidden dimension: {hidden_dim} | 4-bit: {load_in_4bit}")
 
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, padding_side="left")
     if tokenizer.pad_token is None:
@@ -136,7 +153,7 @@ def main():
         backbone=backbone,
         layers=(-1, -6, -12, -24),
         pooling_method="mean",
-        device=device,
+        device=model_device,
     )
 
     # 3. Load Real Benchmark Samples across all 5 domains
@@ -186,7 +203,7 @@ def main():
                     truncation=True,
                     max_length=args.max_length,
                     return_tensors="pt",
-                ).to(device)
+                ).to(model_device)
 
                 input_ids = encoded["input_ids"]
                 attention_mask = encoded["attention_mask"]
@@ -217,7 +234,7 @@ def main():
                         batch_labels.append(1 if is_correct else 0)
 
                     # Collect multi-layer representations (detach to CPU to save GPU mem)
-                    labels_tensor = torch.tensor(batch_labels, device=device)
+                    labels_tensor = torch.tensor(batch_labels, device=model_device)
                     pooled, logits, meta_samples = collector.collect(
                         input_ids=input_ids,
                         attention_mask=attention_mask,

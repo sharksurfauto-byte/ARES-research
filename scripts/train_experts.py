@@ -257,7 +257,34 @@ def main():
     else:
         target_dtype = torch.float32
 
-    logger.info(f"Using device: {device} | dtype: {target_dtype}")
+    # Auto-detect hidden_dim from data_dir representation files if available
+    detected_dim = None
+    data_dir_p = Path(args.data_dir)
+    candidate_rep_files = [
+        data_dir_p / "train.pt",
+        data_dir_p / "representations.pt",
+        Path("representations/multi_domain") / "train.pt",
+    ]
+    for rf in candidate_rep_files:
+        if rf.exists():
+            try:
+                from ares.representations.dataset import RepresentationDataset
+                ds = RepresentationDataset.load(rf)
+                if len(ds) > 0:
+                    detected_dim = ds.samples[0].representation.shape[-1]
+                    logger.info(f"Auto-detected hidden_dim={detected_dim} from {rf}")
+                    break
+            except Exception:
+                pass
+
+    if detected_dim is not None:
+        args.hidden_dim = detected_dim
+    elif "7b" in args.model_name.lower() or "8b" in args.model_name.lower():
+        if args.hidden_dim == 896:  # default was not explicitly changed
+            args.hidden_dim = 3584
+            logger.info(f"Setting hidden_dim={args.hidden_dim} for 7B backbone: {args.model_name}")
+
+    logger.info(f"Using device: {device} | dtype: {target_dtype} | hidden_dim: {args.hidden_dim}")
 
     # Output directory
     output_path = Path(args.output_dir)
@@ -276,9 +303,12 @@ def main():
             if tokenizer.pad_token is None:
                 tokenizer.pad_token = tokenizer.eos_token
 
+            is_7b_bb = any(tag in args.model_name.lower() for tag in ["7b", "8b"])
+            use_4bit_bb = is_7b_bb and device.type != "cpu"
             backbone_cfg = BackboneConfig(
                 name=args.model_name,
-                device_map="cpu" if device.type == "cpu" else str(device),
+                device_map="auto" if use_4bit_bb else ("cpu" if device.type == "cpu" else str(device)),
+                load_in_4bit=use_4bit_bb,
                 torch_dtype="float32" if device.type == "cpu" else "float16",
                 use_cache=False,
                 attn_implementation="eager",
@@ -326,12 +356,27 @@ def main():
                     bias="none",
                 )
 
-                # Load a clean instance of the base backbone for this expert
+                # Load base model (in 4-bit if 7B to avoid OOM)
                 from transformers import AutoModelForCausalLM
-                expert_base_model = AutoModelForCausalLM.from_pretrained(
-                    args.model_name,
-                    torch_dtype=target_dtype,
-                ).to(device)
+                is_7b_peft = any(tag in args.model_name.lower() for tag in ["7b", "8b"])
+                if is_7b_peft and device.type != "cpu":
+                    from transformers import BitsAndBytesConfig
+                    bnb_cfg = BitsAndBytesConfig(
+                        load_in_4bit=True,
+                        bnb_4bit_quant_type="nf4",
+                        bnb_4bit_compute_dtype=torch.float16,
+                        bnb_4bit_use_double_quant=True,
+                    )
+                    expert_base_model = AutoModelForCausalLM.from_pretrained(
+                        args.model_name,
+                        quantization_config=bnb_cfg,
+                        device_map="auto",
+                    )
+                else:
+                    expert_base_model = AutoModelForCausalLM.from_pretrained(
+                        args.model_name,
+                        torch_dtype=target_dtype,
+                    ).to(device)
 
                 peft_model = get_peft_model(expert_base_model, peft_config)
                 peft_model.train()
