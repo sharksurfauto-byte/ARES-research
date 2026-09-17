@@ -246,12 +246,7 @@ Oracle Router (Upper Bound) & $56.0 \pm 0.3\%$ & $54.0 \pm 0.4\%$ & $74.0 \pm 0.
 Throughout development, several probe configurations, fusion mechanisms, and adaptation targets were experimentally evaluated:
 
 \subsection{Representation Extraction Layer Depth}
-We ablated intermediate layer subsets to determine optimal representations for reliability prediction:
-\begin{itemize}
-    \item \textbf{Shallow Layers ($\{-24\}$)}: Captures low-level syntactic primitives; achieves only 68.2\% domain classification accuracy.
-    \item \textbf{Deep Layer ($\{-1\}$)}: Emphasizes final vocabulary projection; domain accuracy improves to 81.4\%, but sensitivity to multi-step reasoning failures is degraded.
-    \item \textbf{Multi-Layer Fusion ($\{-1, -6, -12, -24\}$)}: Bridges semantic abstractions and syntactic features, achieving peak GRM domain classification of \textbf{86.40\%} and reducing ECE to 0.0480.
-\end{itemize}
+We ablated intermediate layer subsets to determine optimal representations for reliability prediction. \textbf{Shallow Layers ($\{-24\}$)} capture low-level syntactic primitives but achieve only 68.2\% domain classification accuracy. \textbf{Deep Layers ($\{-1\}$)} emphasize final vocabulary projection, improving domain accuracy to 81.4\% while degrading sensitivity to multi-step reasoning failures. \textbf{Multi-Layer Fusion ($\{-1, -6, -12, -24\}$)} successfully bridges semantic abstractions and syntactic features, achieving peak GRM domain classification of \textbf{86.40\%} and reducing ECE to 0.0480.
 
 \subsection{Probe Architecture Comparison}
 We compared three candidate probe architectures on identical harvested representation tensors (Table~\ref{tab:probe_architectures}):
@@ -274,11 +269,7 @@ Linear Probe & 72.40\% & \textbf{0.4 ms} & 4.5K \\
 The 2-layer Transformer encoder provides superior cross-attention between pooled hidden dimensions, justifying its modest 4.8 ms latency footprint.
 
 \subsection{LoRA Rank and Training Target Formulation}
-During initial expert training, naive supervision on raw concise targets yielded poor specialization on GSM8K (math accuracy remained at 12\%). Refactoring the supervision objective to emit complete Chain-of-Thought (CoT) derivations with explicit steps:
-\begin{quote}
-\small \texttt{Let's calculate step by step: ... Therefore, the answer is X.}
-\end{quote}
-unlocked significant performance gains, lifting GSM8K accuracy from 32.0\% to 52.0\%. LoRA rank ablation ($r \in \{8, 16, 32, 64\}$) demonstrated that $r=32, \alpha=64$ offered the optimal balance between gradient expressivity and adapter parameter footprint ($< 0.5\%$ of backbone weights).
+During initial expert training, naive supervision on raw concise targets yielded poor specialization on GSM8K (math accuracy remained at 12\%). Refactoring the supervision objective to emit complete Chain-of-Thought (CoT) derivations with explicit steps (e.g., \texttt{"Let's calculate step by step: ... Therefore, the answer is X."}) unlocked significant performance gains, lifting GSM8K accuracy from 32.0\% to 52.0\%. LoRA rank ablation ($r \in \{8, 16, 32, 64\}$) demonstrated that $r=32, \alpha=64$ offered the optimal balance between gradient expressivity and adapter parameter footprint ($< 0.5\%$ of backbone weights).
 
 \begin{figure*}[t]
 \centering
@@ -292,14 +283,7 @@ unlocked significant performance gains, lifting GSM8K accuracy from 32.0\% to 52
 \section{Experimental Setup}
 
 \subsection{Benchmark Datasets}
-Evaluations span five distinct cognitive domains totaling \textbf{2,500 test queries (500 per domain)}:
-\begin{enumerate}
-    \item \textbf{Mathematics (GSM8K)}: 500 multi-step quantitative problem solving instances \cite{cobbe2021gsm8k}. Evaluated via strict numerical answer extraction.
-    \item \textbf{Code Synthesis (MBPP)}: 500 Mostly Basic Python Problems \cite{austin2021mbpp}. Evaluated via programmatic assertion pass-rates.
-    \item \textbf{Scientific Reasoning (AI2-ARC)}: 500 ARC Challenge grade-school science QA problems \cite{clark2018arc}.
-    \item \textbf{Commonsense Reasoning (CSQA)}: 500 multi-choice commonsense associative reasoning items \cite{talmor2019commonsenseqa}.
-    \item \textbf{General Fluency (WikiText-103)}: 500 continuous linguistic completion segments \cite{merity2017wikitext}.
-\end{enumerate}
+Evaluations span five distinct cognitive domains totaling \textbf{2,500 test queries (500 per domain)}: (1)~\textbf{Mathematics (GSM8K)}: 500 multi-step quantitative problems \cite{cobbe2021gsm8k} evaluated via strict numerical answer extraction; (2)~\textbf{Code Synthesis (MBPP)}: 500 Mostly Basic Python Problems \cite{austin2021mbpp} evaluated via programmatic test assertion pass-rates; (3)~\textbf{Scientific Reasoning (AI2-ARC)}: 500 grade-school science QA problems \cite{clark2018arc}; (4)~\textbf{Commonsense Reasoning (CSQA)}: 500 multi-choice associative reasoning items \cite{talmor2019commonsenseqa}; and (5)~\textbf{General Fluency (WikiText-103)}: 500 continuous linguistic completion segments \cite{merity2017wikitext}.
 
 \subsection{Hardware and Distributed Configuration}
 Experiments were conducted on dual NVIDIA T4 GPUs (16 GB VRAM each) hosted in a Kaggle Linux environment utilizing PyTorch 2.1, Hugging Face Transformers 4.41, and PEFT 0.12. All primary benchmark evaluations, ablation experiments, and latency measurements are conducted strictly using \texttt{Qwen2.5-0.5B-Instruct} ($d=896$, 24 layers, 14 attention heads) under BitsAndBytes 4-bit NormalFloat (NF4) execution to evaluate edge efficiency. Section~\ref{sec:engineering} presents exploratory validation on \texttt{Qwen2.5-7B-Instruct} ($d=3584$).
@@ -307,7 +291,7 @@ Experiments were conducted on dual NVIDIA T4 GPUs (16 GB VRAM each) hosted in a 
 \subsection{Probe and Router Training Pipeline}
 \label{sec:training_pipeline}
 To ensure zero data contamination, all probe and router training utilized independent training splits:
-\begin{itemize}
+\begin{itemize}\setlength{\itemsep}{1.5pt}\setlength{\parskip}{0pt}
     \item \textbf{Representation Harvesting}: 1,000 prompts per domain (5,000 samples total) were harvested exclusively from the official \textit{training} partitions of GSM8K, MBPP, AI2-ARC, CSQA, and WikiText-103. Hidden representations across layers $\mathcal{L}_{\text{probe}}$ were extracted with frozen backbone weights and partitioned into a 90\% training / 10\% validation split.
     \item \textbf{GRM and LRM Optimization}: Both probes were optimized using the Adam optimizer with initial learning rate $\eta = 1 \times 10^{-4}$, weight decay $1 \times 10^{-4}$, batch size 32, and a StepLR scheduler ($\text{step\_size} = 10, \gamma = 0.5$) for 10 epochs. Post-hoc calibration applied temperature scaling ($\eta_{\text{cal}} = 0.01$, 20 epochs) followed by non-parametric isotonic regression.
     \item \textbf{Router Policy Optimization}: The MLP router was trained for 5 epochs using Adam ($\eta = 1 \times 10^{-4}$, batch size 16, weight decay $0.01$) regularized with the Switch Transformer auxiliary loss ($\lambda_{\text{lb}} = 0.01$).
@@ -360,31 +344,15 @@ As shown in Fig.~\ref{fig:calibration}, the calibration gap of the raw probe ($E
 Fig.~\ref{fig:risk_coverage} depicts selective error risk as a function of query coverage. ARES achieves an \textbf{Area Under the Risk-Coverage curve (AURC) of 0.284}, substantially outperforming the base model ($\text{AURC} = 0.458$) and token entropy ($\text{AURC} = 0.402$). At 80\% coverage, ARES slashes the selective error rate by \textbf{12.7\% absolute}.
 
 \subsection{Router Dispatch Specialization}
-Fig.~\ref{fig:router_heatmap} plots the routing allocation matrix. The router demonstrates sharp domain discernment:
-\begin{itemize}
-    \item 68.0\% of GSM8K prompts route to $E_{\text{math}}$ ($E_1$).
-    \item 60.0\% of MBPP prompts route to $E_{\text{code}}$ ($E_2$).
-    \item 82.0\% of WikiText prompts select the \textbf{Base Model}, recognizing that the pretrained backbone requires no specialized intervention.
-\end{itemize}
+Fig.~\ref{fig:router_heatmap} plots the routing allocation matrix. The router demonstrates sharp domain discernment: 68.0\% of GSM8K prompts route to $E_{\text{math}}$ ($E_1$), 60.0\% of MBPP prompts route to $E_{\text{code}}$ ($E_2$), and 82.0\% of WikiText prompts select the \textbf{Base Model}, recognizing that the pretrained backbone requires no specialized intervention.
 
 \subsection{Component Latency Profiling}
-Inference timing on a single NVIDIA T4 GPU:
-\begin{itemize}
-    \item Backbone Forward Pass: 42.4 ms
-    \item Dual Reliability Probing (GRM + LRM): 4.8 ms
-    \item Router MLP Dispatch: 0.9 ms
-    \item Autoregressive Token Generation (128 tokens): 2572.8 ms
-\end{itemize}
-Reliability probing and routing add \textbf{less than 6 ms of latency overhead}, representing $< 0.25\%$ of total generation latency.
+Inference timing on a single NVIDIA T4 GPU comprises: backbone forward pass (42.4 ms), dual reliability probing (4.8 ms), router MLP dispatch (0.9 ms), and autoregressive token generation (2572.8 ms for 128 tokens). Reliability probing and routing add \textbf{less than 6 ms of latency overhead}, representing $< 0.25\%$ of total generation latency.
 
 \section{Engineering Challenges \& Retrospective}
 
 \subsection{Adapter Dimension Incompatibility Across Scales}
-When scaling from Qwen2.5-0.5B ($d=896$) to Qwen2.5-7B ($d=3584$), standard PEFT loaders silently instantiate new uninitialized random adapter weights when encountering target dimension discrepancies. We integrated strict validation in \texttt{ARESPipeline.\_load\_components()} that verifies:
-\begin{equation}
-\text{in\_features}_{\text{adapter}} = d_{\text{backbone}}
-\end{equation}
-bypassing incompatible checkpoints with explicit operator warnings.
+When scaling from Qwen2.5-0.5B ($d=896$) to Qwen2.5-7B ($d=3584$), standard PEFT loaders silently instantiate new uninitialized random adapter weights when encountering target dimension discrepancies. We integrated strict validation in \texttt{ARESPipeline.\_load\_components()} that verifies $\text{in\_features}_{\text{adapter}} = d_{\text{backbone}}$, bypassing incompatible checkpoints with explicit operator warnings.
 
 \subsection{Greedy Decoding Repetition Loops}
 Under greedy decoding ($\text{do\_sample} = \text{False}$), 7B instruction backbones frequently entered degenerate repetition loops (e.g., $3+9 = 3+9 = \dots$). Enforcing $\rho = 1.2$ repetition penalty and dual native stop token IDs ($\langle|\text{im\_end}|\rangle$, $\langle|\text{endoftext}|\rangle$) completely eradicated cyclic degeneration.
@@ -407,11 +375,7 @@ We deliberately centered our primary evaluation on a 0.5B parameter backbone to 
 
 \section{Code and Reproducibility}
 \label{sec:reproducibility}
-To foster open science and guarantee end-to-end reproducibility, all artifacts associated with this work---including the complete \texttt{ARESPipeline} implementation, probe and router training harnesses, evaluation scripts, and trained model checkpoints---are publicly available under the open-source MIT License at:
-\begin{center}
-\url{https://github.com/sharksurfauto-byte/ARES-research}
-\end{center}
-All benchmark evaluations can be replicated across random seeds ($\{42, 1337, 2026\}$) using the automated test suite (\texttt{ares\_full\_pipeline\_test.py}).
+To foster open science and guarantee end-to-end reproducibility, all artifacts associated with this work---including the complete \texttt{ARESPipeline} implementation, probe and router training harnesses, evaluation scripts, and trained model checkpoints---are publicly available under the open-source MIT License at \url{https://github.com/sharksurfauto-byte/ARES-research}. All benchmark evaluations can be replicated across random seeds ($\{42, 1337, 2026\}$) using the automated test suite (\texttt{ares\_full\_pipeline\_test.py}).
 
 \section{Conclusion}
 
@@ -423,9 +387,9 @@ Future work will investigate token-level expert interleaving during multi-step c
 The author expresses sincere appreciation to the faculty and mentors at the School of Computing Sciences, Hindustan Institute of Technology and Science (HITS), Chennai, for their guidance and institutional support throughout the development and evaluation of the ARES framework. Computational resources for distributed training and benchmarking on NVIDIA T4 GPUs were facilitated through Kaggle's accelerated research environments.
 
 % Last page column balancing:
-% IEEEtran native trigger guarantees clean column break without splitting citations:
-\IEEEtriggeratref{16}
-%\balance
+% The balance package automatically equalizes column heights on the final page:
+\balance
+%\IEEEtriggeratref{16}
 \bibliographystyle{IEEEtran}
 \bibliography{references}
 
