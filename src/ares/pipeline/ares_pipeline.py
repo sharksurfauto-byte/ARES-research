@@ -143,11 +143,16 @@ class ARESPipeline:
             dev_str = str(self.device)
             use_4bit = is_7b and dev_str != "cpu"
 
+            if use_4bit:
+                d_map = {"": str(self.device)} if dev_str.startswith("cuda") else "auto"
+            else:
+                d_map = None if dev_str != "cpu" else "cpu"
+
             self.backbone = load_backbone(
                 self.config.model_name,
                 device=self.device,
                 load_in_4bit=use_4bit,
-                device_map="auto" if use_4bit else (None if dev_str != "cpu" else "cpu"),
+                device_map=d_map,
             )
 
         # Dynamically detect hidden dimension from loaded backbone
@@ -235,75 +240,63 @@ class ARESPipeline:
                     except Exception as e:
                         print(f"Warning: Failed to load Expert {name} checkpoint: {e}")
 
-        # 5. Load Native HuggingFace PEFT Multi-Adapters
+        # 5. Load Native HuggingFace PEFT Multi-Adapters (only if true PEFT weight files exist)
         self.peft_model = None
         raw_model = getattr(self.backbone, "_model", getattr(self.backbone, "model", self.backbone))
-        try:
-            from peft import PeftModel
-            first_loaded = False
-            for name in self.expert_names:
-                exp_dir = ckpt_dir / "experts" / name
-                if not exp_dir.exists():
-                    exp_dir = ckpt_dir / name
+        has_peft_weights = False
+        for name in self.expert_names:
+            exp_dir = ckpt_dir / "experts" / name
+            if not exp_dir.exists():
+                exp_dir = ckpt_dir / name
+            if exp_dir.exists() and (
+                (exp_dir / "adapter_model.safetensors").exists()
+                or (exp_dir / "adapter_model.bin").exists()
+            ):
+                has_peft_weights = True
+                break
 
-                if exp_dir.exists() and (
-                    (exp_dir / "adapter_config.json").exists()
-                    or (exp_dir / "adapter_model.safetensors").exists()
-                    or (exp_dir / "adapter_model.bin").exists()
-                    or (exp_dir / f"expert_{name}.pt").exists()
-                ):
-                    try:
-                        from peft import LoraConfig, TaskType
-                        # Read r and alpha if present
-                        cfg_path = exp_dir / "adapter_config.json"
-                        r_val, alpha_val = 16, 32
-                        cfg_dict = {}
-                        if cfg_path.exists():
-                            import json
-                            try:
-                                with open(cfg_path, "r") as f:
-                                    cfg_dict = json.load(f)
-                                r_val = cfg_dict.get("r", 16)
-                                alpha_val = cfg_dict.get("lora_alpha", 32)
-                            except Exception:
-                                pass
+        if has_peft_weights:
+            try:
+                from peft import PeftModel
+                first_loaded = False
+                for name in self.expert_names:
+                    exp_dir = ckpt_dir / "experts" / name
+                    if not exp_dir.exists():
+                        exp_dir = ckpt_dir / name
 
-                        # Skip adapters trained for a different backbone dimension
-                        backbone_hidden = getattr(self.backbone, "hidden_size", 896)
-                        adapter_in = cfg_dict.get("in_features", backbone_hidden)
-                        if adapter_in != backbone_hidden:
-                            print(
-                                f"[ARES Pipeline] Skipping adapter '{name}': "
-                                f"trained for dim {adapter_in} but backbone is {backbone_hidden}"
-                            )
-                            continue
-
-                        lora_cfg = LoraConfig(
-                            task_type=TaskType.CAUSAL_LM,
-                            r=r_val,
-                            lora_alpha=alpha_val,
-                            lora_dropout=0.05,
-                            target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
-                            bias="none",
+                    if not (
+                        exp_dir.exists()
+                        and (
+                            (exp_dir / "adapter_model.safetensors").exists()
+                            or (exp_dir / "adapter_model.bin").exists()
                         )
+                    ):
+                        continue
 
+                    try:
                         if not first_loaded:
                             self.peft_model = PeftModel.from_pretrained(
                                 raw_model,
-                                str(exp_dir),
+                                str(exp_dir.resolve()),
                                 adapter_name=name,
-                                config=lora_cfg,
+                                local_files_only=True,
                             )
                             first_loaded = True
                         else:
-                            self.peft_model.load_adapter(str(exp_dir), adapter_name=name, config=lora_cfg)
+                            self.peft_model.load_adapter(
+                                str(exp_dir.resolve()),
+                                adapter_name=name,
+                                local_files_only=True,
+                            )
                     except Exception as err:
                         print(f"[ARES Pipeline] Note: Could not attach PEFT adapter '{name}': {err}")
 
-            if self.peft_model is not None:
-                print(f"[ARES Pipeline] PEFT multi-adapters active: {list(self.peft_model.peft_config.keys())}")
-        except Exception as e:
-            print(f"[ARES Pipeline] Note: PEFT multi-adapter initialization: {e}")
+                if self.peft_model is not None:
+                    print(f"[ARES Pipeline] PEFT multi-adapters active: {list(self.peft_model.peft_config.keys())}")
+            except Exception as e:
+                print(f"[ARES Pipeline] Note: PEFT multi-adapter initialization bypassed: {e}")
+        else:
+            print(f"[ARES Pipeline] Native ARES LoRAExperts active in ExpertManager (fused generation hook).")
 
     def evaluate_reliability(
         self,
@@ -348,13 +341,32 @@ class ARESPipeline:
 
     def route(
         self,
-        pooled_hidden: torch.Tensor,
-        reliability_info: Dict[str, Any],
+        pooled_hidden: Optional[torch.Tensor] = None,
+        reliability_info: Optional[Dict[str, Any]] = None,
         strategy: str = "dynamic",
         oracle_domain: Optional[str] = None,
     ) -> Tuple[int, str, Dict[str, float]]:
         """Determine routing destination based on representation and reliability."""
         strategy = strategy.lower()
+
+        if strategy == "base":
+            probs_dict = {name: (1.0 if i == 0 else 0.0) for i, name in enumerate(self.route_names)}
+            return 0, "BASE", probs_dict
+
+        elif strategy.startswith("fixed"):
+            target = self.config.fixed_expert_name
+            if "_" in strategy:
+                target = strategy.split("_", 1)[1]
+            if target in self.expert_names:
+                idx = self.expert_names.index(target) + 1
+                probs_dict = {name: (1.0 if name == target else 0.0) for name in self.route_names}
+                return idx, target, probs_dict
+            probs_dict = {name: (1.0 if i == 1 else 0.0) for i, name in enumerate(self.route_names)}
+            return 1, self.expert_names[0], probs_dict
+
+        if pooled_hidden is None:
+            raise ValueError(f"pooled_hidden cannot be None for routing strategy '{strategy}'")
+
         pooled_f32 = pooled_hidden.to(dtype=torch.float32)
 
         # Get learned routing probabilities
@@ -365,19 +377,8 @@ class ARESPipeline:
                 for i, name in enumerate(self.route_names)
             }
 
-        if strategy == "base":
-            return 0, "BASE", probs_dict
-
-        elif strategy.startswith("fixed"):
-            target = self.config.fixed_expert_name
-            if "_" in strategy:
-                target = strategy.split("_", 1)[1]
-            if target in self.expert_names:
-                idx = self.expert_names.index(target) + 1
-                return idx, target, probs_dict
-            return 1, self.expert_names[0], probs_dict
-
-        elif strategy == "threshold":
+        if strategy == "threshold":
+            assert reliability_info is not None, "reliability_info required for threshold strategy"
             # If reliability is high, use Base; if low, route to GRM predicted domain expert
             if reliability_info["global_reliability"] >= self.config.reliability_threshold:
                 return 0, "BASE", probs_dict
@@ -405,41 +406,95 @@ class ARESPipeline:
             selected_idx = routing_probs_tensor.argmax(dim=-1).item()
             return selected_idx, self.route_names[selected_idx], probs_dict
 
-    def _get_generation_target_layer(self) -> Optional[nn.Module]:
-        """Find the top-level transformer layer of the backbone to attach LoRA hook."""
+    def _get_generation_target_module(self) -> Tuple[Optional[nn.Module], str]:
+        """Find the optimal hook attachment point in the backbone.
+
+        Returns:
+            Tuple of (module, hook_type):
+            - If final norm layer found: (norm_module, "pre_hook")
+            - Fallback to top-level transformer layer: (layer_module, "forward_hook")
+        """
         model = getattr(self.backbone, "_model", getattr(self.backbone, "model", self.backbone))
-        # Check standard architectures (Qwen, LLaMA, Mistral, GPT-2)
+        # 1. Prefer pre-hook on final normalization layer (Qwen2, LLaMA, Mistral, Gemma, GPT-2)
+        if hasattr(model, "model") and hasattr(model.model, "norm") and model.model.norm is not None:
+            return model.model.norm, "pre_hook"
+        elif hasattr(model, "norm") and model.norm is not None:
+            return model.norm, "pre_hook"
+        elif hasattr(model, "transformer") and hasattr(model.transformer, "ln_f") and model.transformer.ln_f is not None:
+            return model.transformer.ln_f, "pre_hook"
+
+        # 2. Fallback to forward hook on last transformer layer
         if hasattr(model, "model") and hasattr(model.model, "layers") and len(model.model.layers) > 0:
-            return model.model.layers[-1]
+            return model.model.layers[-1], "forward_hook"
         elif hasattr(model, "transformer") and hasattr(model.transformer, "h") and len(model.transformer.h) > 0:
-            return model.transformer.h[-1]
+            return model.transformer.h[-1], "forward_hook"
         elif hasattr(model, "layers") and len(model.layers) > 0:
-            return model.layers[-1]
-        return None
+            return model.layers[-1], "forward_hook"
+        return None, "none"
+
+    def _get_generation_target_layer(self) -> Optional[nn.Module]:
+        """Backward-compatible alias for target layer lookup."""
+        mod, _ = self._get_generation_target_module()
+        return mod
 
     def _make_expert_hook(self, expert: LoRAExpert):
         """Create forward hook that applies LoRA expert adaptation to hidden states."""
+        target_device = self.device
+        target_dtype = None
+        raw_model = getattr(self.backbone, "_model", getattr(self.backbone, "model", self.backbone))
+        for p in raw_model.parameters():
+            target_device = p.device
+            target_dtype = p.dtype
+            break
+
+        fast_expert = expert.to_fast(target_device, target_dtype) if hasattr(expert, "to_fast") else expert
+
         def hook_fn(module, input_args, output):
             if isinstance(output, tuple):
                 h = output[0]
-                param = next(expert.parameters(), None)
-                if param is not None:
-                    if param.device != h.device:
-                        expert.to(h.device)
-                    if param.dtype != h.dtype:
-                        expert.to(dtype=h.dtype)
-                adapted = expert(h)
+                adapted = fast_expert(h)
                 return (adapted,) + output[1:]
             elif isinstance(output, torch.Tensor):
-                param = next(expert.parameters(), None)
-                if param is not None:
-                    if param.device != output.device:
-                        expert.to(output.device)
-                    if param.dtype != output.dtype:
-                        expert.to(dtype=output.dtype)
-                return expert(output)
+                return fast_expert(output)
             return output
         return hook_fn
+
+    def _attach_expert_for_generation(self, expert: LoRAExpert):
+        """Zero-overhead context manager attaching expert adapter for generation."""
+        from contextlib import contextmanager
+
+        raw_model = getattr(self.backbone, "_model", getattr(self.backbone, "model", self.backbone))
+        target_device = self.device
+        target_dtype = None
+        for p in raw_model.parameters():
+            target_device = p.device
+            target_dtype = p.dtype
+            break
+
+        fast_expert = expert.to_fast(target_device, target_dtype) if hasattr(expert, "to_fast") else expert
+        target_module, hook_type = self._get_generation_target_module()
+
+        if target_module is None:
+            raise RuntimeError("[ARES Pipeline] Could not locate target transformer layer or norm for expert attachment.")
+
+        @contextmanager
+        def hook_scope():
+            if hook_type == "pre_hook":
+                def pre_fn(module, args):
+                    return (fast_expert(args[0]),)
+                handle = target_module.register_forward_pre_hook(pre_fn)
+            else:
+                def post_fn(module, input_args, output):
+                    if isinstance(output, tuple):
+                        return (fast_expert(output[0]),) + output[1:]
+                    return fast_expert(output)
+                handle = target_module.register_forward_hook(post_fn)
+            try:
+                yield
+            finally:
+                handle.remove()
+
+        return hook_scope()
 
     def generate(
         self,
@@ -500,32 +555,54 @@ class ARESPipeline:
             for k, v in raw_inputs.items()
         }
 
-        # ─── 2. Backbone Forward Pass ────────────────────────────────────────
-        t0 = time.perf_counter()
-        with torch.no_grad():
-            outputs = self.backbone(**inputs, output_hidden_states=True)
-            # Last layer hidden state
-            last_hidden = outputs.hidden_states[-1]
-            # Pooled representation (last token)
-            pooled_hidden = last_hidden[:, -1, :]
-        timing["backbone_ms"] = (time.perf_counter() - t0) * 1000.0
+        # Check if routing strategy is predetermined (fixed or base)
+        is_fixed = (strategy in ("base", "fixed_expert")) or (isinstance(strategy, str) and strategy.startswith("fixed_"))
 
-        # ─── 3. Reliability Analysis (GRM + LRM) ─────────────────────────────
-        t0 = time.perf_counter()
-        reliability_info = self.evaluate_reliability(last_hidden, pooled_hidden)
-        timing["reliability_ms"] = (time.perf_counter() - t0) * 1000.0
+        if is_fixed:
+            # Fast path: O(1) route lookup, skipping redundant 7B forward pass + GRM + LRM + Router
+            route_idx, selected_route, routing_probs = self.route(
+                pooled_hidden=None,
+                reliability_info=None,
+                strategy=strategy,
+                oracle_domain=oracle_domain,
+            )
+            reliability_info = {
+                "domain_prediction": selected_route,
+                "domain_confidence": 1.0,
+                "global_reliability": 1.0,
+                "feasibility": 1.0,
+                "token_reliability": torch.empty(0),
+                "failure_risk": 0.0,
+                "uncertainty_score": 0.0,
+            }
+            timing["backbone_ms"] = 0.0
+            timing["reliability_ms"] = 0.0
+            timing["router_ms"] = 0.0
+        else:
+            # ─── 2. Backbone Forward Pass ────────────────────────────────────
+            t0 = time.perf_counter()
+            with torch.no_grad():
+                outputs = self.backbone(**inputs, output_hidden_states=True)
+                last_hidden = outputs.hidden_states[-1]
+                pooled_hidden = last_hidden[:, -1, :]
+            timing["backbone_ms"] = (time.perf_counter() - t0) * 1000.0
 
-        # ─── 4. Routing Decision ─────────────────────────────────────────────
-        t0 = time.perf_counter()
-        route_idx, selected_route, routing_probs = self.route(
-            pooled_hidden=pooled_hidden,
-            reliability_info=reliability_info,
-            strategy=strategy,
-            oracle_domain=oracle_domain,
-        )
-        timing["router_ms"] = (time.perf_counter() - t0) * 1000.0
+            # ─── 3. Reliability Analysis (GRM + LRM) ─────────────────────────
+            t0 = time.perf_counter()
+            reliability_info = self.evaluate_reliability(last_hidden, pooled_hidden)
+            timing["reliability_ms"] = (time.perf_counter() - t0) * 1000.0
 
-        # ─── 5. Text Generation (Native PEFT Adapter vs Base Model) ───────────
+            # ─── 4. Routing Decision ─────────────────────────────────────────
+            t0 = time.perf_counter()
+            route_idx, selected_route, routing_probs = self.route(
+                pooled_hidden=pooled_hidden,
+                reliability_info=reliability_info,
+                strategy=strategy,
+                oracle_domain=oracle_domain,
+            )
+            timing["router_ms"] = (time.perf_counter() - t0) * 1000.0
+
+        # ─── 5. Text Generation (Native PEFT Adapter vs Fused FastLoRA) ─────
         t0 = time.perf_counter()
         raw_model = getattr(self.backbone, "_model", getattr(self.backbone, "model", self.backbone))
 
@@ -566,19 +643,14 @@ class ARESPipeline:
                 ):
                     expert = self.expert_manager.experts[route_idx - 1]
 
-                target_layer = self._get_generation_target_layer()
-                if expert is not None and target_layer is not None:
-                    hook_handle = target_layer.register_forward_hook(self._make_expert_hook(expert))
-                    try:
+                if expert is not None:
+                    with self._attach_expert_for_generation(expert):
                         gen_output = raw_model.generate(**inputs, **gen_kwargs)
-                    finally:
-                        hook_handle.remove()
                 else:
                     raise RuntimeError(
                         f"[ARES Pipeline FATAL] Expert route '{selected_route}' (idx {route_idx}) requested, "
                         f"but neither PEFT adapter nor target transformer layer/expert hook could be attached! "
-                        f"peft_model={self.peft_model is not None}, expert={expert is not None}, "
-                        f"target_layer={target_layer is not None}. Silent fallback to base model is disabled."
+                        f"peft_model={self.peft_model is not None}, expert={expert is not None}. Silent fallback to base model is disabled."
                     )
             elif self.peft_model is not None:
                 # Base model route: disable adapter

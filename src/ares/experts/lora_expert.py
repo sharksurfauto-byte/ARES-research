@@ -161,13 +161,15 @@ class LoRAExpert(nn.Module):
             delta = self.lora_layers[module_name](x)
             return x + delta
 
-        delta_sum = torch.zeros_like(x)
+        delta = None
         for lora_layer in self.lora_layers.values():
-            delta_sum = delta_sum + lora_layer(x)
-        delta_avg = delta_sum / len(self.lora_layers)
-
-        gate_weight = self.gate(x_for_gate).to(orig_dtype)
-        return x + gate_weight * delta_avg
+            d = lora_layer(x)
+            delta = d if delta is None else (delta + d)
+        if delta is not None:
+            delta = delta * (1.0 / len(self.lora_layers))
+            gate_weight = self.gate(x_for_gate).to(orig_dtype)
+            return x + gate_weight * delta
+        return x
 
     def get_num_trainable_params(self) -> int:
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
@@ -293,7 +295,6 @@ class LoRAExpert(nn.Module):
         """Convert state dict to PEFT-compatible naming."""
         peft_dict = {}
         for key, val in self.state_dict().items():
-            # Example: lora_layers.q_proj.lora_A.weight -> lora_layers.q_proj.lora_A.default.weight
             if "lora_A.weight" in key:
                 peft_key = key.replace("lora_A.weight", "lora_A.default.weight")
             elif "lora_B.weight" in key:
@@ -302,3 +303,74 @@ class LoRAExpert(nn.Module):
                 peft_key = key
             peft_dict[peft_key] = val
         return peft_dict
+
+    def to_fast(
+        self,
+        device: Optional[Union[torch.device, str]] = None,
+        dtype: Optional[torch.dtype] = None,
+    ) -> "FastLoRAExpert":
+        """Get or create cached zero-overhead FastLoRAExpert fused adapter."""
+        if not hasattr(self, "_fast_version") or self._fast_version is None:
+            self._fast_version = FastLoRAExpert(self)
+        if device is not None or dtype is not None:
+            dev = device or next(self.parameters()).device
+            dt = dtype or next(self.parameters()).dtype
+            self._fast_version.to_target(dev, dt)
+        return self._fast_version
+
+
+class FastLoRAExpert(nn.Module):
+    """Zero-overhead fused LoRA expert optimized for autoregressive generation.
+
+    Fuses the target LoRA projection layers into a single GEMM pair (A_fused, B_fused),
+    reducing kernel launches and eliminating per-token dynamic tensor allocations.
+    """
+
+    def __init__(self, expert: LoRAExpert):
+        super().__init__()
+        self.expert_name = expert.expert_name
+        self.config = expert.config
+
+        r = expert.config.r
+        scaling = expert.config.scaling
+
+        modules = [m for m in expert.config.target_modules if m in expert.lora_layers]
+        if not modules:
+            modules = list(expert.lora_layers.keys())
+
+        a_weights = [expert.lora_layers[m].lora_A.weight for m in modules]
+        b_weights = [expert.lora_layers[m].lora_B.weight for m in modules]
+
+        # Vertically stack A: [num_modules * r, in_features]
+        a_fused = torch.cat(a_weights, dim=0)
+        # Horizontally stack B with scaling / num_modules factor: [out_features, num_modules * r]
+        b_fused = (scaling / len(modules)) * torch.cat(b_weights, dim=1)
+
+        self.register_buffer("A_fused_T", a_fused.t().contiguous())
+        self.register_buffer("B_fused_T", b_fused.t().contiguous())
+
+        # Gate network
+        self.gate = expert.gate
+        self.eval()
+
+    def to_target(self, device: Union[torch.device, str], dtype: torch.dtype) -> "FastLoRAExpert":
+        """Pre-cast and pin to target device and dtype ONCE before generation begins."""
+        self.to(device=device, dtype=dtype)
+        self.A_fused_T = self.A_fused_T.to(device=device, dtype=dtype)
+        self.B_fused_T = self.B_fused_T.to(device=device, dtype=dtype)
+        self.gate.to(device=device, dtype=dtype)
+        return self
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Fused forward pass: 2 GEMMs + 1 gated residual add with zero dynamic allocations."""
+        orig_dtype = x.dtype
+        if x.dtype != self.A_fused_T.dtype or x.device != self.A_fused_T.device:
+            x_calc = x.to(device=self.A_fused_T.device, dtype=self.A_fused_T.dtype)
+        else:
+            x_calc = x
+
+        h_mid = torch.matmul(x_calc, self.A_fused_T)
+        delta = torch.matmul(h_mid, self.B_fused_T)
+        gate_weight = self.gate(x_calc)
+        out = x_calc + gate_weight * delta
+        return out.to(orig_dtype) if out.dtype != orig_dtype else out

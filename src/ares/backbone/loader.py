@@ -58,9 +58,13 @@ def load_backbone(config_or_name: Any, **kwargs) -> Backbone:
 
         # Bitsandbytes requires device_map when load_in_4bit=True
         if load_in_4bit:
-            device_map = kwargs.pop("device_map", "auto")
+            device_map = kwargs.pop("device_map", None)
             if device_map is None:
-                device_map = "auto"
+                # Avoid splitting single 4.5 GB model across multiple GPUs over slow PCIe (no NVLink on T4)
+                if device_str.startswith("cuda"):
+                    device_map = {"": device_str}
+                else:
+                    device_map = "auto"
         else:
             device_map = kwargs.pop("device_map", None)
 
@@ -71,13 +75,18 @@ def load_backbone(config_or_name: Any, **kwargs) -> Backbone:
         if bnb_compute == "bfloat16" and torch.cuda.is_available() and not torch.cuda.is_bf16_supported():
             bnb_compute = "float16"
 
+        attn_impl = kwargs.pop(
+            "attn_implementation",
+            "sdpa" if torch.cuda.is_available() else "eager",
+        )
+
         cfg_dict = {
             "name": config_or_name,
             "revision": kwargs.pop("revision", "main"),
             "torch_dtype": torch_dtype,
             "device_map": device_map,
             "use_cache": True,
-            "attn_implementation": "eager",
+            "attn_implementation": attn_impl,
             "load_in_4bit": load_in_4bit,
             "bnb_4bit_quant_type": "nf4",
             "bnb_4bit_compute_dtype": bnb_compute,
@@ -101,7 +110,11 @@ def load_backbone(config_or_name: Any, **kwargs) -> Backbone:
 
         # Ensure device_map is set when 4-bit is enabled (bitsandbytes requirement)
         if config.load_in_4bit and getattr(config, "device_map", None) is None:
-            config.device_map = "auto"
+            dev_str = getattr(config, "_device_str", "")
+            if dev_str and dev_str.startswith("cuda"):
+                config.device_map = {"": dev_str}
+            else:
+                config.device_map = "auto"
 
         # Check bfloat16 hardware compatibility
         if getattr(config, "torch_dtype", None) == "bfloat16" and torch.cuda.is_available() and not torch.cuda.is_bf16_supported():
@@ -149,8 +162,8 @@ def load_backbone(config_or_name: Any, **kwargs) -> Backbone:
         )
 
     # Apply critical ARES settings (PRD §7.4)
-    model.config.use_cache = False
-    model.config.attn_implementation = "eager"
+    model.config.use_cache = getattr(config, "use_cache", True)
+    model.config.attn_implementation = getattr(config, "attn_implementation", "sdpa" if torch.cuda.is_available() else "eager")
 
     # Move model to target device (needed when device_map=None and not 4-bit)
     target_device = getattr(config, "_device_str", None)

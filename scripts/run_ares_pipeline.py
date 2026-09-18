@@ -32,6 +32,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import torch
+
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
@@ -49,6 +51,20 @@ from ares.pipeline.baselines import BaselineComparator, BaselineSampleResult
 from ares.pipeline.metrics import MetricsCalculator
 
 
+def _to_json_serializable(val: Any) -> Any:
+    if isinstance(val, torch.Tensor):
+        if val.numel() == 1:
+            return val.item()
+        return val.detach().cpu().tolist()
+    if isinstance(val, (int, float, str, bool)) or val is None:
+        return val
+    if isinstance(val, dict):
+        return {k: _to_json_serializable(v) for k, v in val.items()}
+    if isinstance(val, (list, tuple)):
+        return [_to_json_serializable(v) for v in val]
+    return str(val)
+
+
 def serialize_baseline_sample(sample_res: BaselineSampleResult) -> Dict[str, Any]:
     """Serialize a single BaselineSampleResult for incremental JSON checkpointing."""
     results_dict = {}
@@ -59,17 +75,17 @@ def serialize_baseline_sample(sample_res: BaselineSampleResult) -> Dict[str, Any
             "full_output_text": r.full_output_text,
             "selected_route": r.selected_route,
             "route_idx": r.route_idx,
-            "routing_probs": r.routing_probs,
+            "routing_probs": _to_json_serializable(r.routing_probs),
             "domain_prediction": r.domain_prediction,
-            "domain_confidence": r.domain_confidence,
-            "global_reliability": r.global_reliability,
-            "feasibility": r.feasibility,
-            "token_reliability": r.token_reliability,
-            "failure_risk": r.failure_risk,
-            "uncertainty_score": r.uncertainty_score,
-            "latency_ms": r.latency_ms,
-            "tokens_generated": r.tokens_generated,
-            "route_confidence": r.route_confidence,
+            "domain_confidence": float(r.domain_confidence),
+            "global_reliability": float(r.global_reliability),
+            "feasibility": float(r.feasibility),
+            "token_reliability": _to_json_serializable(r.token_reliability),
+            "failure_risk": float(r.failure_risk),
+            "uncertainty_score": float(r.uncertainty_score),
+            "latency_ms": _to_json_serializable(r.latency_ms),
+            "tokens_generated": int(r.tokens_generated),
+            "route_confidence": float(r.route_confidence),
         }
     return {
         "sample_id": sample_res.sample_id,
@@ -78,9 +94,9 @@ def serialize_baseline_sample(sample_res: BaselineSampleResult) -> Dict[str, Any
         "target_answer": sample_res.target_answer,
         "eval_type": sample_res.eval_type,
         "results": results_dict,
-        "correctness": sample_res.correctness,
-        "latencies_ms": sample_res.latencies_ms,
-        "expert_invocations": sample_res.expert_invocations,
+        "correctness": _to_json_serializable(sample_res.correctness),
+        "latencies_ms": _to_json_serializable(sample_res.latencies_ms),
+        "expert_invocations": _to_json_serializable(sample_res.expert_invocations),
     }
 
 
@@ -88,6 +104,9 @@ def deserialize_baseline_sample(d: Dict[str, Any]) -> BaselineSampleResult:
     """Deserialize a dictionary back into a BaselineSampleResult object."""
     results = {}
     for strat, rd in d["results"].items():
+        tok_rel = rd.get("token_reliability", 0.0)
+        if isinstance(tok_rel, list):
+            tok_rel = torch.tensor(tok_rel)
         results[strat] = PipelineResult(
             prompt=rd.get("prompt", ""),
             generated_text=rd.get("generated_text", ""),
@@ -99,7 +118,7 @@ def deserialize_baseline_sample(d: Dict[str, Any]) -> BaselineSampleResult:
             domain_confidence=rd.get("domain_confidence", 0.0),
             global_reliability=rd.get("global_reliability", 0.0),
             feasibility=rd.get("feasibility", 0.0),
-            token_reliability=rd.get("token_reliability", 0.0),
+            token_reliability=tok_rel,
             failure_risk=rd.get("failure_risk", 0.0),
             uncertainty_score=rd.get("uncertainty_score", 0.0),
             latency_ms=rd.get("latency_ms", {}),
