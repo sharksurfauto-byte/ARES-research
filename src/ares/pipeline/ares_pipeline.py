@@ -104,11 +104,15 @@ class ARESPipeline:
         grm: Optional[GRM] = None,
         lrm: Optional[LRM] = None,
         expert_manager: Optional[ExpertManager] = None,
+        device: Optional[Union[torch.device, str]] = None,
     ):
         self.config = config or PipelineConfig()
         
-        # Determine device
-        if self.config.device == "auto":
+        # Determine device (explicit device argument takes priority)
+        if device is not None:
+            self.device = torch.device(device)
+            self.config.device = str(device)
+        elif self.config.device == "auto":
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
             self.device = torch.device(self.config.device)
