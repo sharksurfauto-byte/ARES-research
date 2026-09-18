@@ -35,20 +35,46 @@ class BenchmarkSample:
 # ─── Ground Truth Evaluator ──────────────────────────────────────────────────
 
 def extract_math_answer(text: str) -> Optional[str]:
-    """Extract numeric answer from generated math text or GSM8K target."""
-    if "####" in text:
-        return text.split("####")[-1].strip().replace(",", "")
-    
-    # Search for standard answer patterns: "The answer is X", "#### X", "= X"
-    patterns = [
-        r"(?:the answer is|equals|result is|=)\s*([+-]?\d+(?:\.\d+)?)",
-        r"([+-]?\d+(?:\.\d+)?)\s*(?:km/h|mph|dollars|apples|hours|minutes)?\s*$",
-        r"([+-]?\d+(?:\.\d+)?)",
+    """Robust answer extraction for GSM8K across Base models and Instruct CoT."""
+    clean_text = text.strip()
+    if not clean_text:
+        return None
+
+    # 1. Standard GSM8K delimiter: #### X
+    if "####" in clean_text:
+        return clean_text.split("####")[-1].strip().replace(",", "").rstrip(".")
+
+    # 2. LaTeX boxed notation: \boxed{X} or \boxed{X.Y}
+    boxed_matches = re.findall(r"\\boxed\{([+-]?[\d,]+(?:\.\d+)?)\}", clean_text)
+    if boxed_matches:
+        return boxed_matches[-1].replace(",", "").rstrip(".")
+
+    # 3. Explicit final answer phrases
+    explicit_patterns = [
+        r"(?:final answer|correct answer|the answer is|the total is|equals?)\s*[:\*\$]*\s*([+-]?[\d,]+(?:\.\d+)?)",
+        r"\b(?:answer|result)\s*[:\*\$]*\s*([+-]?[\d,]+(?:\.\d+)?)",
     ]
-    for pattern in patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            return match.group(1).replace(",", "")
+    for pattern in explicit_patterns:
+        matches = re.findall(pattern, clean_text, re.IGNORECASE)
+        if matches:
+            return matches[-1].replace(",", "").rstrip(".")
+
+    # 4. Scoped search in tail (last 200 chars) for concluding "is/are X"
+    tail_text = clean_text[-200:] if len(clean_text) > 200 else clean_text
+    tail_is_match = re.findall(r"\b(?:is|are)\s*[:\*\$]*\s*([+-]?[\d,]+(?:\.\d+)?)\s*(?:\.|$)", tail_text, re.IGNORECASE)
+    if tail_is_match:
+        return tail_is_match[-1].replace(",", "").rstrip(".")
+
+    # 5. Fallback: The LAST numeric token in the tail (never the first number in prompt/reasoning!)
+    tail_numbers = re.findall(r"(?<![a-zA-Z])([+-]?\d+(?:\.\d+)?)(?![a-zA-Z])", tail_text)
+    if tail_numbers:
+        return tail_numbers[-1].replace(",", "").rstrip(".")
+
+    # 6. Global fallback: The LAST numeric token in full text
+    all_numbers = re.findall(r"(?<![a-zA-Z])([+-]?\d+(?:\.\d+)?)(?![a-zA-Z])", clean_text)
+    if all_numbers:
+        return all_numbers[-1].replace(",", "").rstrip(".")
+
     return None
 
 
@@ -123,7 +149,10 @@ def load_gsm8k_samples(n_samples: int = 500, split: str = "train") -> List[Bench
     split_name = "test" if split in ["test", "val", "validation"] else split
     hf_split = split_name if "[:" in split_name else f"{split_name}[:{max(n_samples * 2, 1000)}]"
     try:
-        ds = load_dataset("gsm8k", "main", split=hf_split)
+        try:
+            ds = load_dataset("openai/gsm8k", "main", split=hf_split)
+        except Exception:
+            ds = load_dataset("gsm8k", "main", split=hf_split)
         for i, item in enumerate(ds):
             if len(samples) >= n_samples:
                 break
@@ -171,7 +200,10 @@ def load_mbpp_samples(n_samples: int = 500, split: str = "train") -> List[Benchm
     split_name = "test" if split in ["test", "val", "validation"] else split
     hf_split = split_name if "[:" in split_name else split_name
     try:
-        ds = load_dataset("mbpp", "default", split=hf_split)
+        try:
+            ds = load_dataset("google-research-datasets/mbpp", "default", split=hf_split)
+        except Exception:
+            ds = load_dataset("mbpp", "default", split=hf_split)
         for i, item in enumerate(ds):
             if len(samples) >= n_samples:
                 break
@@ -217,7 +249,10 @@ def load_ai2_arc_samples(n_samples: int = 500, split: str = "train") -> List[Ben
     split_name = "test" if split in ["test", "val", "validation"] else split
     hf_split = split_name if "[:" in split_name else f"{split_name}[:{max(n_samples * 2, 1000)}]"
     try:
-        ds = load_dataset("ai2_arc", "ARC-Challenge", split=hf_split)
+        try:
+            ds = load_dataset("allenai/ai2_arc", "ARC-Challenge", split=hf_split)
+        except Exception:
+            ds = load_dataset("ai2_arc", "ARC-Challenge", split=hf_split)
         for i, item in enumerate(ds):
             if len(samples) >= n_samples:
                 break

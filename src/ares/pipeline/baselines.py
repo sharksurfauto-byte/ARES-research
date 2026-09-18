@@ -94,9 +94,11 @@ class BaselineComparator:
                 selected_route = "BASE"
                 route_idx = 0
             elif "fixed" in strat_lower:
-                target = self.fixed_expert
-                if "_" in strat_lower:
-                    target = strat_lower.split("_", 1)[1]
+                parts = strat_lower.split("_", 1)
+                if len(parts) > 1 and parts[1] in self.pipeline.expert_names:
+                    target = parts[1]
+                else:
+                    target = self.fixed_expert
                 if target in self.pipeline.expert_names:
                     selected_route = target
                     route_idx = self.pipeline.expert_names.index(target) + 1
@@ -236,5 +238,29 @@ class BaselineComparator:
                 except Exception as e:
                     if verbose:
                         print(f"[ARES Baselines] Checkpoint callback warning: {e}", flush=True)
+
+        # Sanity check: Ensure strategies with significantly different invocation rates do not produce byte-identical completions
+        if len(results) >= 10:
+            for strat_a in self.strategies:
+                for strat_b in self.strategies:
+                    if strat_a >= strat_b:
+                        continue
+                    inv_a = sum(1 for r in results if r.expert_invocations.get(strat_a, False)) / len(results)
+                    inv_b = sum(1 for r in results if r.expert_invocations.get(strat_b, False)) / len(results)
+                    # If invocation rate difference > 25%
+                    if abs(inv_a - inv_b) > 0.25:
+                        identical_count = sum(
+                            1 for r in results
+                            if r.results.get(strat_a) and r.results.get(strat_b)
+                            and r.results[strat_a].generated_text == r.results[strat_b].generated_text
+                        )
+                        identical_ratio = identical_count / len(results)
+                        if identical_ratio > 0.90:
+                            print(
+                                f"[ARES SANITY WARNING] Strategy '{strat_a}' (inv={inv_a:.1%}) and '{strat_b}' (inv={inv_b:.1%}) "
+                                f"have {identical_ratio:.1%} identical generation outputs! "
+                                f"Verify that adapter weights are properly loaded and affecting hidden states.",
+                                flush=True,
+                            )
 
         return results

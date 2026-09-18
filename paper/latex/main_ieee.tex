@@ -361,6 +361,7 @@ Fig.~\ref{fig:router_heatmap} plots the empirical routing allocation matrix. The
 Inference timing on a single NVIDIA T4 GPU comprises: backbone forward pass (42.4 ms), dual reliability probing (4.8 ms), router MLP dispatch (0.9 ms), and autoregressive token generation (2572.8 ms for 128 tokens). Reliability probing and routing add \textbf{less than 6 ms of latency overhead}, representing $< 0.25\%$ of total generation latency.
 
 \section{Engineering Challenges \& Retrospective}
+\label{sec:engineering}
 
 \subsection{Adapter Dimension Incompatibility Across Scales}
 When scaling from Qwen2.5-0.5B ($d=896$) to Qwen2.5-7B ($d=3584$), standard PEFT loaders silently instantiate new uninitialized random adapter weights when encountering target dimension discrepancies. We integrated strict validation in \texttt{ARESPipeline.\_load\_components()} that verifies $\text{in\_features}_{\text{adapter}} = d_{\text{backbone}}$, bypassing incompatible checkpoints with explicit operator warnings.

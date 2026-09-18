@@ -407,12 +407,14 @@ class ARESPipeline:
 
     def _get_generation_target_layer(self) -> Optional[nn.Module]:
         """Find the top-level transformer layer of the backbone to attach LoRA hook."""
-        model = getattr(self.backbone, "_model", self.backbone)
+        model = getattr(self.backbone, "_model", getattr(self.backbone, "model", self.backbone))
         # Check standard architectures (Qwen, LLaMA, Mistral, GPT-2)
         if hasattr(model, "model") and hasattr(model.model, "layers") and len(model.model.layers) > 0:
             return model.model.layers[-1]
         elif hasattr(model, "transformer") and hasattr(model.transformer, "h") and len(model.transformer.h) > 0:
             return model.transformer.h[-1]
+        elif hasattr(model, "layers") and len(model.layers) > 0:
+            return model.layers[-1]
         return None
 
     def _make_expert_hook(self, expert: LoRAExpert):
@@ -420,9 +422,21 @@ class ARESPipeline:
         def hook_fn(module, input_args, output):
             if isinstance(output, tuple):
                 h = output[0]
+                param = next(expert.parameters(), None)
+                if param is not None:
+                    if param.device != h.device:
+                        expert.to(h.device)
+                    if param.dtype != h.dtype:
+                        expert.to(dtype=h.dtype)
                 adapted = expert(h)
                 return (adapted,) + output[1:]
             elif isinstance(output, torch.Tensor):
+                param = next(expert.parameters(), None)
+                if param is not None:
+                    if param.device != output.device:
+                        expert.to(output.device)
+                    if param.dtype != output.dtype:
+                        expert.to(dtype=output.dtype)
                 return expert(output)
             return output
         return hook_fn
@@ -542,6 +556,29 @@ class ARESPipeline:
             ):
                 self.peft_model.set_adapter(selected_route)
                 gen_output = self.peft_model.generate(**inputs, **gen_kwargs)
+            elif route_idx > 0:
+                expert = None
+                if (
+                    self.expert_manager is not None
+                    and hasattr(self.expert_manager, "experts")
+                    and (route_idx - 1) < len(self.expert_manager.experts)
+                ):
+                    expert = self.expert_manager.experts[route_idx - 1]
+
+                target_layer = self._get_generation_target_layer()
+                if expert is not None and target_layer is not None:
+                    hook_handle = target_layer.register_forward_hook(self._make_expert_hook(expert))
+                    try:
+                        gen_output = raw_model.generate(**inputs, **gen_kwargs)
+                    finally:
+                        hook_handle.remove()
+                else:
+                    raise RuntimeError(
+                        f"[ARES Pipeline FATAL] Expert route '{selected_route}' (idx {route_idx}) requested, "
+                        f"but neither PEFT adapter nor target transformer layer/expert hook could be attached! "
+                        f"peft_model={self.peft_model is not None}, expert={expert is not None}, "
+                        f"target_layer={target_layer is not None}. Silent fallback to base model is disabled."
+                    )
             elif self.peft_model is not None:
                 # Base model route: disable adapter
                 with self.peft_model.disable_adapter():
