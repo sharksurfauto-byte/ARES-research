@@ -146,13 +146,33 @@ def evaluate_prediction(prediction: str, target: str, eval_type: str) -> bool:
 def load_gsm8k_samples(n_samples: int = 500, split: str = "train") -> List[BenchmarkSample]:
     """Load GSM8K benchmark samples."""
     samples = []
-    split_name = "test" if split in ["test", "val", "validation"] else split
+    split_name = "test" if split in ["test", "val", "validation"] else "train"
     hf_split = split_name if "[:" in split_name else f"{split_name}[:{max(n_samples * 2, 1000)}]"
+
+    ds = None
+    # Tier 1: Canonical openai/gsm8k
     try:
+        ds = load_dataset("openai/gsm8k", "main", split=hf_split)
+    except Exception:
+        pass
+
+    # Tier 2: Legacy gsm8k with trust_remote_code
+    if ds is None:
         try:
-            ds = load_dataset("openai/gsm8k", "main", split=hf_split)
+            ds = load_dataset("gsm8k", "main", split=hf_split, trust_remote_code=True)
         except Exception:
-            ds = load_dataset("gsm8k", "main", split=hf_split)
+            pass
+
+    # Tier 3: Bulletproof direct Parquet HTTP stream from Hugging Face
+    if ds is None:
+        try:
+            split_file = "test" if split_name == "test" else "train"
+            parquet_url = f"https://huggingface.co/datasets/openai/gsm8k/resolve/main/data/{split_file}-00000-of-00001.parquet"
+            ds = load_dataset("parquet", data_files=parquet_url, split="train")
+        except Exception:
+            pass
+
+    if ds is not None:
         for i, item in enumerate(ds):
             if len(samples) >= n_samples:
                 break
@@ -170,27 +190,28 @@ def load_gsm8k_samples(n_samples: int = 500, split: str = "train") -> List[Bench
                     metadata={"full_answer": a},
                 )
             )
-    except Exception as e:
-        print(f"[GSM8K] HF loading fallback: {e}")
-        # Synthetic math fallback
-        math_bank = [
-            ("If a train travels 120 km in 2 hours, what is its speed in km/h?", "60"),
-            ("Solve for x: 3x + 9 = 24.", "5"),
-            ("A store sells apples for $2 each. If Sarah buys 7 apples, how much does she pay?", "14"),
-            ("What is 15 percent of 200?", "30"),
-            ("If a rectangle has length 10 and width 4, what is its area?", "40"),
-        ]
-        for i in range(n_samples):
-            q, a = math_bank[i % len(math_bank)]
-            samples.append(
-                BenchmarkSample(
-                    sample_id=f"synth_math_{i}",
-                    domain="math",
-                    prompt=f"Solve the following math problem:\n{q}\nAnswer:",
-                    target_answer=a,
-                    eval_type="math_numeric",
-                )
+        return samples
+
+    print(f"[GSM8K] All HF download methods failed. Using synthetic math fallback.")
+    # Synthetic math fallback
+    math_bank = [
+        ("If a train travels 120 km in 2 hours, what is its speed in km/h?", "60"),
+        ("Solve for x: 3x + 9 = 24.", "5"),
+        ("A store sells apples for $2 each. If Sarah buys 7 apples, how much does she pay?", "14"),
+        ("What is 15 percent of 200?", "30"),
+        ("If a rectangle has length 10 and width 4, what is its area?", "40"),
+    ]
+    for i in range(n_samples):
+        q, a = math_bank[i % len(math_bank)]
+        samples.append(
+            BenchmarkSample(
+                sample_id=f"synth_math_{i}",
+                domain="math",
+                prompt=f"Solve the following math problem:\n{q}\nAnswer:",
+                target_answer=a,
+                eval_type="math_numeric",
             )
+        )
     return samples
 
 
@@ -345,7 +366,10 @@ def load_reasoning_samples(n_samples: int = 500, split: str = "train") -> List[B
     samples = []
     hf_split = "validation" if split in ["test", "val", "validation"] else split
     try:
-        ds = load_dataset("commonsense_qa", split=hf_split)
+        try:
+            ds = load_dataset("tau/commonsense_qa", split=hf_split)
+        except Exception:
+            ds = load_dataset("commonsense_qa", split=hf_split)
         for i, item in enumerate(ds):
             if len(samples) >= n_samples:
                 break
