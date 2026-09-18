@@ -40,9 +40,10 @@ def extract_math_answer(text: str) -> Optional[str]:
     if not clean_text:
         return None
 
-    # 1. Standard GSM8K delimiter: #### X
-    if "####" in clean_text:
-        return clean_text.split("####")[-1].strip().replace(",", "").rstrip(".")
+    # 1. Standard GSM8K delimiter: #### [number] (avoid matching Markdown H4 headers like #### Plan B)
+    gsm8k_delim = re.findall(r"####\s*([+-]?[\d,]+(?:\.\d+)?)", clean_text)
+    if gsm8k_delim:
+        return gsm8k_delim[-1].replace(",", "").rstrip(".")
 
     # 2. LaTeX boxed notation: \boxed{X} or \boxed{X.Y}
     boxed_matches = re.findall(r"\\boxed\{([+-]?[\d,]+(?:\.\d+)?)\}", clean_text)

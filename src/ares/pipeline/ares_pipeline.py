@@ -244,6 +244,12 @@ class ARESPipeline:
                     except Exception as e:
                         print(f"Warning: Failed to load Expert {name} checkpoint: {e}")
 
+            # Auto-sanitize any residual NaNs in expert parameters to guarantee numerical safety
+            for expert in self.expert_manager.experts:
+                for param in expert.parameters():
+                    if torch.isnan(param).any():
+                        param.data = torch.nan_to_num(param.data, nan=0.0)
+
         # 5. Load Native HuggingFace PEFT Multi-Adapters (only if true PEFT weight files exist)
         self.peft_model = None
         raw_model = getattr(self.backbone, "_model", getattr(self.backbone, "model", self.backbone))
