@@ -115,9 +115,12 @@ class QwenBackbone(Backbone):
         self._hidden_state_layers = hidden_state_layers
 
         # Ensure critical settings
-        self._model.config.use_cache = False
+        self._model.config.use_cache = self._config.get("use_cache", True)
         if hasattr(self._model.config, "attn_implementation"):
-            self._model.config.attn_implementation = "eager"
+            self._model.config.attn_implementation = self._config.get(
+                "attn_implementation",
+                "sdpa" if torch.cuda.is_available() else "eager",
+            )
 
         # Freeze all parameters (PRD §7.4 #1)
         for param in self._model.parameters():

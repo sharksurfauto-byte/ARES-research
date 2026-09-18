@@ -609,19 +609,26 @@ class ARESPipeline:
         # ─── 5. Text Generation (Native PEFT Adapter vs Fused FastLoRA) ─────
         t0 = time.perf_counter()
         raw_model = getattr(self.backbone, "_model", getattr(self.backbone, "model", self.backbone))
+        if hasattr(raw_model, "config") and raw_model.config is not None:
+            raw_model.config.use_cache = True
 
         eos_ids = [self.tokenizer.eos_token_id]
-        try:
-            im_end_id = self.tokenizer.convert_tokens_to_ids("<|im_end|>")
-            if isinstance(im_end_id, int) and im_end_id not in eos_ids and im_end_id > 0:
-                eos_ids.append(im_end_id)
-        except Exception:
-            pass
+        for marker in ["<|im_end|>", "<|endoftext|>"]:
+            try:
+                mid = self.tokenizer.convert_tokens_to_ids(marker)
+                if isinstance(mid, int) and mid not in eos_ids and mid > 0:
+                    eos_ids.append(mid)
+            except Exception:
+                pass
+
+        from transformers import StoppingCriteriaList
+        stopping_criteria = StoppingCriteriaList([StopOnTokens(eos_ids)])
 
         gen_kwargs: Dict[str, Any] = {
             "max_new_tokens": max_new_tokens or self.config.max_new_tokens,
             "pad_token_id": self.tokenizer.pad_token_id or self.tokenizer.eos_token_id,
             "eos_token_id": eos_ids if len(eos_ids) > 1 else self.tokenizer.eos_token_id,
+            "stopping_criteria": stopping_criteria,
             "do_sample": do_sample,
             "repetition_penalty": 1.2,
             "use_cache": True,
