@@ -543,6 +543,7 @@ class ARESPipeline:
             "eos_token_id": eos_ids if len(eos_ids) > 1 else self.tokenizer.eos_token_id,
             "do_sample": do_sample,
             "repetition_penalty": 1.2,
+            "use_cache": True,
         }
         if do_sample:
             gen_kwargs["temperature"] = temperature

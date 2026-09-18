@@ -76,7 +76,7 @@ def load_backbone(config_or_name: Any, **kwargs) -> Backbone:
             "revision": kwargs.pop("revision", "main"),
             "torch_dtype": torch_dtype,
             "device_map": device_map,
-            "use_cache": False,
+            "use_cache": True,
             "attn_implementation": "eager",
             "load_in_4bit": load_in_4bit,
             "bnb_4bit_quant_type": "nf4",
