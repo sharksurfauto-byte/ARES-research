@@ -191,11 +191,14 @@ class BaselineComparator:
                 res.route_confidence = base_res.routing_probs.get(selected_route, 0.0)
                 route_cache[selected_route] = res
 
-            is_correct = evaluate_prediction(
-                prediction=res.generated_text,
-                target=sample.target_answer,
-                eval_type=sample.eval_type,
-            )
+            try:
+                is_correct = evaluate_prediction(
+                    prediction=res.generated_text,
+                    target=sample.target_answer,
+                    eval_type=sample.eval_type,
+                )
+            except Exception:
+                is_correct = False
 
             results[strategy] = res
             correctness[strategy] = is_correct

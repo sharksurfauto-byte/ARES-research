@@ -34,9 +34,11 @@ class BenchmarkSample:
 
 # ─── Ground Truth Evaluator ──────────────────────────────────────────────────
 
-def extract_math_answer(text: str) -> Optional[str]:
+def extract_math_answer(text: Any) -> Optional[str]:
     """Robust answer extraction for GSM8K across Base models and Instruct CoT."""
-    clean_text = text.strip()
+    if text is None:
+        return None
+    clean_text = str(text).strip()
     if not clean_text:
         return None
 
@@ -79,20 +81,30 @@ def extract_math_answer(text: str) -> Optional[str]:
     return None
 
 
-def extract_mcq_answer(text: str) -> Optional[str]:
+def extract_mcq_answer(text: Any) -> Optional[str]:
     """Extract multiple choice letter (A, B, C, D) from response."""
+    if text is None:
+        return None
+    clean_text = str(text).strip()
+    if not clean_text:
+        return None
+
+    num_map = {"1": "A", "2": "B", "3": "C", "4": "D", "5": "E"}
+    if clean_text in num_map:
+        return num_map[clean_text]
+
     patterns = [
         r"(?:the correct answer is|the answer is|choice)\s*[:\(]?\s*([A-E])\b",
         r"\b([A-E])\b\s*[\)\.:]",
         r"^\s*([A-E])\b",
     ]
     for pattern in patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
+        match = re.search(pattern, clean_text, re.IGNORECASE)
         if match:
             return match.group(1).upper()
     
     # Fallback to single character check
-    for char in text.strip()[:10]:
+    for char in clean_text[:10]:
         if char.upper() in ["A", "B", "C", "D", "E"]:
             return char.upper()
     return None
@@ -109,8 +121,8 @@ def evaluate_prediction(prediction: str, target: str, eval_type: str) -> bool:
     Returns:
         True if prediction is considered correct, False otherwise
     """
-    pred_clean = prediction.strip()
-    target_clean = target.strip()
+    pred_clean = str(prediction).strip() if prediction is not None else ""
+    target_clean = str(target).strip() if target is not None else ""
 
     if eval_type == "math_numeric":
         pred_num = extract_math_answer(pred_clean)
@@ -119,12 +131,13 @@ def evaluate_prediction(prediction: str, target: str, eval_type: str) -> bool:
             try:
                 return abs(float(pred_num) - float(target_num)) < 1e-4
             except ValueError:
-                return pred_num == target_num
-        return (target_num if target_num else target_clean) in pred_clean
+                return str(pred_num).strip() == str(target_num).strip()
+        return (str(target_num) if target_num else target_clean) in pred_clean
 
     elif eval_type == "multiple_choice":
+        num_map = {"1": "A", "2": "B", "3": "C", "4": "D", "5": "E"}
         pred_choice = extract_mcq_answer(pred_clean)
-        target_choice = extract_mcq_answer(target_clean) or target_clean.upper()
+        target_choice = extract_mcq_answer(target_clean) or num_map.get(target_clean, target_clean.upper())
         if pred_choice and target_choice:
             return pred_choice == target_choice
         return target_clean.lower() in pred_clean.lower()
