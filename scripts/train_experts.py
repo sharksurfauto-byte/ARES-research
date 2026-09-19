@@ -346,8 +346,11 @@ def main():
                     bias="none",
                 )
 
-                # Load base model (in 4-bit if 7B to avoid OOM)
+                # Load base model in 4-bit NF4 with gradient checkpointing to prevent OOM
                 from transformers import AutoModelForCausalLM
+                from peft import prepare_model_for_kbit_training
+                import gc
+
                 is_7b_peft = any(tag in args.model_name.lower() for tag in ["7b", "8b"])
                 if is_7b_peft and device.type != "cpu":
                     from transformers import BitsAndBytesConfig
@@ -360,7 +363,12 @@ def main():
                     expert_base_model = AutoModelForCausalLM.from_pretrained(
                         args.model_name,
                         quantization_config=bnb_cfg,
-                        device_map="auto",
+                        torch_dtype=torch.float16,
+                        device_map={"": 0} if torch.cuda.is_available() else "auto",
+                    )
+                    expert_base_model.gradient_checkpointing_enable()
+                    expert_base_model = prepare_model_for_kbit_training(
+                        expert_base_model, use_gradient_checkpointing=True
                     )
                 else:
                     expert_base_model = AutoModelForCausalLM.from_pretrained(
@@ -384,7 +392,6 @@ def main():
                     target_str = s.target_answer.strip()
                     
                     if name == "math":
-                        # Use full step-by-step solution if available in metadata
                         full_solution = s.metadata.get("full_answer", target_str) if s.metadata else target_str
                         full_str = f"{prompt_str} {full_solution}"
                     elif name in ["science", "reasoning"]:
@@ -399,7 +406,7 @@ def main():
 
                     enc = tokenizer(
                         full_str,
-                        max_length=256,
+                        max_length=128,
                         truncation=True,
                         padding=False,
                         return_tensors="pt",
@@ -430,15 +437,16 @@ def main():
                         batch = formatted_data[b_start : b_start + b_size]
                         max_len = max(len(x["input_ids"]) for x in batch)
 
-                        b_ids = torch.full((len(batch), max_len), tokenizer.pad_token_id or 0, dtype=torch.long, device=device)
-                        b_mask = torch.zeros((len(batch), max_len), dtype=torch.long, device=device)
-                        b_labels = torch.full((len(batch), max_len), -100, dtype=torch.long, device=device)
+                        target_dev = "cuda:0" if torch.cuda.is_available() else device
+                        b_ids = torch.full((len(batch), max_len), tokenizer.pad_token_id or 0, dtype=torch.long, device=target_dev)
+                        b_mask = torch.zeros((len(batch), max_len), dtype=torch.long, device=target_dev)
+                        b_labels = torch.full((len(batch), max_len), -100, dtype=torch.long, device=target_dev)
 
                         for i, item in enumerate(batch):
                             l = len(item["input_ids"])
-                            b_ids[i, :l] = item["input_ids"].to(device)
-                            b_mask[i, :l] = item["attention_mask"].to(device)
-                            b_labels[i, :l] = item["labels"].to(device)
+                            b_ids[i, :l] = item["input_ids"].to(target_dev)
+                            b_mask[i, :l] = item["attention_mask"].to(target_dev)
+                            b_labels[i, :l] = item["labels"].to(target_dev)
 
                         optimizer.zero_grad()
                         outputs = peft_model(input_ids=b_ids, attention_mask=b_mask, labels=b_labels)
@@ -457,12 +465,16 @@ def main():
                 logger.info(f"  [PEFT {name}] Saved HuggingFace PEFT adapter to {expert_dir}")
                 peft_success = True
 
-                # Clean up expert model to free GPU memory
+                # Clean up expert model thoroughly to free GPU memory
                 del peft_model, expert_base_model, optimizer
+                gc.collect()
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
             except Exception as e:
                 logger.warning(f"  PEFT Causal LM training failed: {e}. Falling back to representation training.")
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
         # 3. Build standalone LoRAExpert for representation-level pipeline integration
         expert_cfg = LoRAExpertConfig(
