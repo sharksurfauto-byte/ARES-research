@@ -58,6 +58,8 @@ class PipelineConfig:
     expert_checkpoints: Optional[Dict[str, str]] = None
     
     device: str = "auto"
+    device_map: Optional[Any] = None
+    load_in_4bit: Optional[bool] = None
     reliability_threshold: float = 0.5
     routing_strategy: str = "dynamic"  # "dynamic", "base", "fixed", "threshold", "oracle", "random"
     fixed_expert_name: str = "math"
@@ -145,9 +147,11 @@ class ARESPipeline:
         if self.backbone is None:
             is_7b = any(tag in self.config.model_name.lower() for tag in ["7b", "8b", "4bit"])
             dev_str = str(self.device)
-            use_4bit = is_7b and dev_str != "cpu"
+            use_4bit = self.config.load_in_4bit if self.config.load_in_4bit is not None else (is_7b and dev_str != "cpu")
 
-            if use_4bit:
+            if self.config.device_map is not None:
+                d_map = self.config.device_map
+            elif use_4bit:
                 d_map = {"": str(self.device)} if dev_str.startswith("cuda") else "auto"
             else:
                 d_map = None if dev_str != "cpu" else "cpu"
