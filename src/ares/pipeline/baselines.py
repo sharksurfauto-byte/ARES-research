@@ -195,7 +195,7 @@ class BaselineComparator:
                 )
                 res.selected_route = selected_route
                 res.route_idx = route_idx
-                res.route_confidence = base_res.routing_probs.get(selected_route, 0.0)
+                res.route_confidence = router_res.routing_probs.get(selected_route, 0.0)
                 route_cache[selected_route] = res
 
             try:
