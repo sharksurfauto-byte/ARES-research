@@ -114,10 +114,19 @@ class ARESPipeline:
         if device is not None:
             self.device = torch.device(device)
             self.config.device = str(device)
-        elif self.config.device == "auto":
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        else:
+        elif self.config.device != "auto":
             self.device = torch.device(self.config.device)
+        elif self.config.device_map is not None:
+            if isinstance(self.config.device_map, str) and self.config.device_map != "auto":
+                self.device = torch.device(self.config.device_map)
+                self.config.device = str(self.config.device_map)
+            elif isinstance(self.config.device_map, dict) and "" in self.config.device_map:
+                self.device = torch.device(self.config.device_map[""])
+                self.config.device = str(self.config.device_map[""])
+            else:
+                self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        else:
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.expert_names = self.config.expert_names
         self.route_names = ["BASE"] + self.expert_names
@@ -326,8 +335,10 @@ class ARESPipeline:
     ) -> Dict[str, Any]:
         """Compute dual reliability signals (GRM + LRM) and uncertainty."""
         with torch.no_grad():
-            pooled_f32 = pooled_hidden.to(dtype=torch.float32)
-            seq_f32 = hidden_states.to(dtype=torch.float32)
+            grm_dev = next(self.grm.parameters()).device if hasattr(self.grm, "parameters") else self.device
+            lrm_dev = next(self.lrm.parameters()).device if hasattr(self.lrm, "parameters") else self.device
+            pooled_f32 = pooled_hidden.to(device=grm_dev, dtype=torch.float32)
+            seq_f32 = hidden_states.to(device=lrm_dev, dtype=torch.float32)
 
             # GRM Forward
             domain_logits, feasibility, global_rel = self.grm(pooled_f32)
@@ -388,7 +399,8 @@ class ARESPipeline:
         if pooled_hidden is None:
             raise ValueError(f"pooled_hidden cannot be None for routing strategy '{strategy}'")
 
-        pooled_f32 = pooled_hidden.to(dtype=torch.float32)
+        router_dev = next(self.expert_manager.router.parameters()).device if hasattr(self.expert_manager.router, "parameters") else self.device
+        pooled_f32 = pooled_hidden.to(device=router_dev, dtype=torch.float32)
 
         # Get learned routing probabilities
         with torch.no_grad():
