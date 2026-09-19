@@ -261,8 +261,8 @@ class LoRAExpert(nn.Module):
         save_dir = Path(save_directory)
         save_dir.mkdir(parents=True, exist_ok=True)
 
-        # Save config json
-        config_path = save_dir / "adapter_config.json"
+        # Save config json (use expert_config.json so we do not overwrite HuggingFace PEFT adapter_config.json)
+        config_path = save_dir / "expert_config.json"
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(self.config.to_dict(), f, indent=2)
 

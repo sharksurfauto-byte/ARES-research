@@ -250,6 +250,12 @@ class ARESPipeline:
                     if torch.isnan(param).any():
                         param.data = torch.nan_to_num(param.data, nan=0.0)
 
+            # Verify that loaded expert weights are not all zeros
+            for expert in self.expert_manager.experts:
+                total_norm = sum(p.norm().item() for p in expert.parameters())
+                if total_norm == 0.0:
+                    print(f"  [ARES Warning] Expert '{expert.expert_name}' has weight norm 0.0000 (identity mapping). Generations will be identical to base model.")
+
         # 5. Load Native HuggingFace PEFT Multi-Adapters (only if true PEFT weight files exist)
         self.peft_model = None
         raw_model = getattr(self.backbone, "_model", getattr(self.backbone, "model", self.backbone))
@@ -258,7 +264,7 @@ class ARESPipeline:
             exp_dir = ckpt_dir / "experts" / name
             if not exp_dir.exists():
                 exp_dir = ckpt_dir / name
-            if exp_dir.exists() and (
+            if exp_dir.exists() and (exp_dir / "adapter_config.json").exists() and (
                 (exp_dir / "adapter_model.safetensors").exists()
                 or (exp_dir / "adapter_model.bin").exists()
             ):
@@ -276,6 +282,7 @@ class ARESPipeline:
 
                     if not (
                         exp_dir.exists()
+                        and (exp_dir / "adapter_config.json").exists()
                         and (
                             (exp_dir / "adapter_model.safetensors").exists()
                             or (exp_dir / "adapter_model.bin").exists()

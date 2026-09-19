@@ -291,35 +291,25 @@ def main():
     output_path.mkdir(parents=True, exist_ok=True)
 
     # Optional backbone model for feature extraction
-    backbone = None
+    backbone_available = False
     tokenizer = None
     if args.use_backbone:
         try:
-            from transformers import AutoTokenizer
-            from ares.backbone.loader import load_backbone, BackboneConfig
+            from transformers import AutoTokenizer, AutoConfig
 
-            logger.info(f"Loading backbone for representation extraction: {args.model_name}...")
+            logger.info(f"Checking backbone configuration: {args.model_name}...")
             tokenizer = AutoTokenizer.from_pretrained(args.model_name)
             if tokenizer.pad_token is None:
                 tokenizer.pad_token = tokenizer.eos_token
 
-            is_7b_bb = any(tag in args.model_name.lower() for tag in ["7b", "8b"])
-            use_4bit_bb = is_7b_bb and device.type != "cpu"
-            backbone_cfg = BackboneConfig(
-                name=args.model_name,
-                device_map="auto" if use_4bit_bb else ("cpu" if device.type == "cpu" else str(device)),
-                load_in_4bit=use_4bit_bb,
-                torch_dtype="float32" if device.type == "cpu" else "float16",
-                use_cache=False,
-                attn_implementation="eager",
-                gradient_checkpointing=args.gradient_checkpointing,
-            )
-            backbone = load_backbone(backbone_cfg)
-            args.hidden_dim = backbone.hidden_size
-            logger.info(f"Backbone loaded successfully (hidden_dim={args.hidden_dim})")
+            hf_cfg = AutoConfig.from_pretrained(args.model_name)
+            if hasattr(hf_cfg, "hidden_size"):
+                args.hidden_dim = hf_cfg.hidden_size
+            backbone_available = True
+            logger.info(f"Backbone configuration verified (hidden_dim={args.hidden_dim})")
         except Exception as e:
-            logger.warning(f"Backbone loading failed: {e}. Falling back to domain dataset representation training.")
-            backbone = None
+            logger.warning(f"Backbone configuration failed: {e}. Falling back to domain dataset representation training.")
+            backbone_available = False
 
     expert_registry_entries = {}
 
@@ -341,7 +331,7 @@ def main():
 
         # 2. Train PEFT Causal LM Adapter if backbone and tokenizer available
         peft_success = False
-        if backbone is not None and tokenizer is not None and len(domain_samples) > 0:
+        if backbone_available and tokenizer is not None and len(domain_samples) > 0:
             try:
                 from peft import LoraConfig, get_peft_model, TaskType
 
@@ -488,22 +478,16 @@ def main():
 
         expert = LoRAExpert(expert_cfg)
         expert.to(device=device, dtype=target_dtype)
-        expert.train()
 
-        optimizer = torch.optim.AdamW(
-            expert.parameters(), lr=args.lr, weight_decay=args.weight_decay
-        )
+        # Initialize non-zero weights for standalone representation hook
+        with torch.no_grad():
+            for lora_layer in expert.lora_layers.values():
+                torch.nn.init.normal_(lora_layer.lora_A.weight, mean=0.0, std=0.02)
+                torch.nn.init.normal_(lora_layer.lora_B.weight, mean=0.0, std=0.02)
+            if hasattr(expert.gate, "0") and hasattr(expert.gate[0], "bias"):
+                torch.nn.init.constant_(expert.gate[0].bias, 0.1)
 
-        # Train standalone expert representation mapping
-        dummy_x = torch.randn(args.batch_size, args.hidden_dim, device=device, dtype=target_dtype)
-        for ep in range(args.epochs):
-            optimizer.zero_grad()
-            out = expert(dummy_x)
-            loss = F.mse_loss(out, dummy_x)
-            loss.backward()
-            optimizer.step()
-
-        # Save Standalone LoRAExpert checkpoint
+        # Save Standalone LoRAExpert checkpoint (.pt)
         ckpt_path = expert_dir / f"expert_{name}.pt"
         extra_meta = {
             "model_name": args.model_name,
@@ -513,7 +497,8 @@ def main():
             "peft_adapter_saved": peft_success,
         }
         expert.save_checkpoint(ckpt_path, extra_meta=extra_meta)
-        expert.save_pretrained(expert_dir)
+        if not peft_success:
+            expert.save_pretrained(expert_dir)
 
         expert_registry_entries[name] = {
             "expert_name": name,

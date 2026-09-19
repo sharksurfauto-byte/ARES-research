@@ -78,13 +78,14 @@ class BaselineComparator:
         latencies_ms: Dict[str, float] = {}
         expert_invocations: Dict[str, bool] = {}
 
-        # ─── 1. Run Base Generation & Router Inference ───────────────────────
-        base_res = self.pipeline.generate(
+        # ─── 1. Run Dynamic Router & Reliability Inference ──────────────────
+        # Runs representation extraction, GRM reliability, and learned router
+        router_res = self.pipeline.generate(
             prompt=sample.prompt,
-            strategy="base",
+            strategy="dynamic_ares",
             max_new_tokens=max_new_tokens,
         )
-        route_cache: Dict[str, PipelineResult] = {"BASE": base_res}
+        route_cache: Dict[str, PipelineResult] = {router_res.selected_route: router_res}
 
         # ─── 2. Evaluate All Configured Strategies ───────────────────────────
         for strategy in self.strategies:
@@ -113,11 +114,11 @@ class BaselineComparator:
                     selected_route = "BASE"
                     route_idx = 0
             elif "threshold" in strat_lower:
-                if base_res.global_reliability >= self.threshold:
+                if router_res.global_reliability >= self.threshold:
                     selected_route = "BASE"
                     route_idx = 0
                 else:
-                    pred_dom = base_res.domain_prediction
+                    pred_dom = router_res.domain_prediction
                     if pred_dom in self.pipeline.expert_names:
                         selected_route = pred_dom
                         route_idx = self.pipeline.expert_names.index(pred_dom) + 1
@@ -130,36 +131,42 @@ class BaselineComparator:
                 selected_route = self.pipeline.route_names[route_idx]
             else:
                 # Dynamic ARES (learned router decision)
-                if base_res.routing_probs:
-                    selected_route = max(base_res.routing_probs, key=base_res.routing_probs.get)
+                if router_res.routing_probs:
+                    selected_route = max(router_res.routing_probs, key=router_res.routing_probs.get)
                     route_idx = self.pipeline.route_names.index(selected_route) if selected_route in self.pipeline.route_names else 0
                 else:
-                    selected_route = "BASE"
-                    route_idx = 0
+                    selected_route = router_res.selected_route
+                    route_idx = router_res.route_idx
 
             # ─── 3. Smart Cache Lookup ───────────────────────────────────────
             if selected_route == "BASE" or route_idx == 0:
-                # SMART CACHE HIT: Reuse base model generation without redundant forward pass!
+                if "BASE" not in route_cache:
+                    base_res = self.pipeline.generate(
+                        prompt=sample.prompt,
+                        strategy="base",
+                        max_new_tokens=max_new_tokens,
+                    )
+                    route_cache["BASE"] = base_res
+                cached = route_cache["BASE"]
                 res = PipelineResult(
                     prompt=sample.prompt,
-                    generated_text=base_res.generated_text,
-                    full_output_text=base_res.full_output_text,
+                    generated_text=cached.generated_text,
+                    full_output_text=cached.full_output_text,
                     selected_route="BASE",
                     route_idx=0,
-                    routing_probs=base_res.routing_probs,
-                    domain_prediction=base_res.domain_prediction,
-                    domain_confidence=base_res.domain_confidence,
-                    global_reliability=base_res.global_reliability,
-                    feasibility=base_res.feasibility,
-                    token_reliability=base_res.token_reliability,
-                    failure_risk=base_res.failure_risk,
-                    uncertainty_score=base_res.uncertainty_score,
-                    latency_ms=dict(base_res.latency_ms),
-                    tokens_generated=base_res.tokens_generated,
-                    route_confidence=base_res.routing_probs.get("BASE", 0.0),
+                    routing_probs=router_res.routing_probs,
+                    domain_prediction=router_res.domain_prediction,
+                    domain_confidence=router_res.domain_confidence,
+                    global_reliability=router_res.global_reliability,
+                    feasibility=router_res.feasibility,
+                    token_reliability=router_res.token_reliability,
+                    failure_risk=router_res.failure_risk,
+                    uncertainty_score=router_res.uncertainty_score,
+                    latency_ms=dict(cached.latency_ms),
+                    tokens_generated=cached.tokens_generated,
+                    route_confidence=router_res.routing_probs.get("BASE", 0.0),
                 )
             elif selected_route in route_cache:
-                # SMART CACHE HIT: Reuse existing expert generation
                 cached = route_cache[selected_route]
                 res = PipelineResult(
                     prompt=sample.prompt,
@@ -167,17 +174,17 @@ class BaselineComparator:
                     full_output_text=cached.full_output_text,
                     selected_route=selected_route,
                     route_idx=route_idx,
-                    routing_probs=base_res.routing_probs,
-                    domain_prediction=base_res.domain_prediction,
-                    domain_confidence=base_res.domain_confidence,
-                    global_reliability=base_res.global_reliability,
-                    feasibility=base_res.feasibility,
-                    token_reliability=base_res.token_reliability,
-                    failure_risk=base_res.failure_risk,
-                    uncertainty_score=base_res.uncertainty_score,
+                    routing_probs=router_res.routing_probs,
+                    domain_prediction=router_res.domain_prediction,
+                    domain_confidence=router_res.domain_confidence,
+                    global_reliability=router_res.global_reliability,
+                    feasibility=router_res.feasibility,
+                    token_reliability=router_res.token_reliability,
+                    failure_risk=router_res.failure_risk,
+                    uncertainty_score=router_res.uncertainty_score,
                     latency_ms=dict(cached.latency_ms),
                     tokens_generated=cached.tokens_generated,
-                    route_confidence=base_res.routing_probs.get(selected_route, 0.0),
+                    route_confidence=router_res.routing_probs.get(selected_route, 0.0),
                 )
             else:
                 # CACHE MISS: Execute generation with selected expert adapter
