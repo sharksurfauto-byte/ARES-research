@@ -393,31 +393,26 @@ def main():
                     
                     if name == "math":
                         full_solution = s.metadata.get("full_answer", target_str) if s.metadata else target_str
-                        full_str = f"{prompt_str} {full_solution}"
+                        resp_str = f" {full_solution}"
                     elif name in ["science", "reasoning"]:
-                        full_str = f"{prompt_str} The correct answer is ({target_str})."
+                        resp_str = f" The correct answer is ({target_str})."
                     elif name == "code":
-                        full_str = f"{prompt_str}\n{target_str}"
+                        resp_str = f"\n{target_str}"
                     else:
-                        full_str = f"{prompt_str} {target_str}"
+                        resp_str = f" {target_str}"
 
-                    prompt_ids = tokenizer(prompt_str, add_special_tokens=False)["input_ids"]
-                    prompt_len = len(prompt_ids)
+                    # Tokenize prompt (up to 192 tokens) and target response (up to 64 tokens) separately
+                    p_enc = tokenizer(prompt_str, max_length=192, truncation=True, add_special_tokens=False)
+                    t_enc = tokenizer(resp_str, max_length=64, truncation=True, add_special_tokens=False)
 
-                    enc = tokenizer(
-                        full_str,
-                        max_length=128,
-                        truncation=True,
-                        padding=False,
-                        return_tensors="pt",
-                    )
-                    input_ids = enc["input_ids"][0]
-                    attention_mask = enc["attention_mask"][0]
-                    labels = input_ids.clone()
-                    if prompt_len < len(labels):
-                        labels[:prompt_len] = -100
-                    else:
-                        labels[:-1] = -100
+                    p_ids = p_enc["input_ids"]
+                    t_ids = t_enc["input_ids"]
+                    if not t_ids:
+                        t_ids = [tokenizer.eos_token_id or 0]
+
+                    input_ids = torch.tensor(p_ids + t_ids, dtype=torch.long)
+                    attention_mask = torch.ones(len(input_ids), dtype=torch.long)
+                    labels = torch.tensor([-100] * len(p_ids) + t_ids, dtype=torch.long)
 
                     formatted_data.append({
                         "input_ids": input_ids,
