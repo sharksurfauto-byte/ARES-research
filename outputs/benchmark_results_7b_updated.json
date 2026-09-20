@@ -34,7 +34,8 @@
       "routing_distribution": {
         "BASE": 1.0
       },
-      "total_samples": 500
+      "total_samples": 500,
+      "compute_savings": 1.0
     },
     "FIXED_EXPERT": {
       "strategy_name": "FIXED_EXPERT",
@@ -53,7 +54,8 @@
       "routing_distribution": {
         "math": 1.0
       },
-      "total_samples": 500
+      "total_samples": 500,
+      "compute_savings": 0.0
     },
     "ENTROPY_THRESHOLD": {
       "strategy_name": "ENTROPY_THRESHOLD",
@@ -76,7 +78,8 @@
         "science": 0.064,
         "code": 0.048
       },
-      "total_samples": 500
+      "total_samples": 500,
+      "compute_savings": 0.704
     },
     "RANDOM_ROUTER": {
       "strategy_name": "RANDOM_ROUTER",
@@ -100,7 +103,8 @@
         "science": 0.16,
         "general": 0.16
       },
-      "total_samples": 500
+      "total_samples": 500,
+      "compute_savings": 0.176
     },
     "THRESHOLD_ROUTER": {
       "strategy_name": "THRESHOLD_ROUTER",
@@ -123,7 +127,8 @@
         "science": 0.116,
         "code": 0.02
       },
-      "total_samples": 500
+      "total_samples": 500,
+      "compute_savings": 0.558
     },
     "DYNAMIC_ARES": {
       "strategy_name": "DYNAMIC_ARES",
@@ -146,7 +151,8 @@
         "science": 0.096,
         "code": 0.01
       },
-      "total_samples": 500
+      "total_samples": 500,
+      "compute_savings": 0.614
     },
     "ALWAYS_ON_MOE": {
       "strategy_name": "ALWAYS_ON_MOE",
@@ -169,7 +175,8 @@
         "reasoning": 0.2,
         "science": 0.2
       },
-      "total_samples": 500
+      "total_samples": 500,
+      "compute_savings": 0.0
     }
   },
   "reliability_metrics": {
