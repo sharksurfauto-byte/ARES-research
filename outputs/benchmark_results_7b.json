@@ -1,0 +1,190 @@
+{
+  "total_samples": 500,
+  "domains_evaluated": [
+    "code",
+    "general",
+    "math",
+    "reasoning",
+    "science"
+  ],
+  "strategies": [
+    "BASE",
+    "FIXED_EXPERT",
+    "ENTROPY_THRESHOLD",
+    "RANDOM_ROUTER",
+    "THRESHOLD_ROUTER",
+    "DYNAMIC_ARES",
+    "ALWAYS_ON_MOE"
+  ],
+  "strategy_metrics": {
+    "BASE": {
+      "strategy_name": "BASE",
+      "accuracy": 0.712,
+      "domain_accuracies": {
+        "code": 0.68,
+        "general": 0.82,
+        "math": 0.62,
+        "reasoning": 0.68,
+        "science": 0.76
+      },
+      "mean_latency_ms": 2845.0,
+      "p50_latency_ms": 2810.0,
+      "p95_latency_ms": 2990.0,
+      "expert_invocation_rate": 0.0,
+      "routing_distribution": {
+        "BASE": 1.0
+      },
+      "total_samples": 500
+    },
+    "FIXED_EXPERT": {
+      "strategy_name": "FIXED_EXPERT",
+      "accuracy": 0.724,
+      "domain_accuracies": {
+        "code": 0.66,
+        "general": 0.8,
+        "math": 0.76,
+        "reasoning": 0.66,
+        "science": 0.74
+      },
+      "mean_latency_ms": 3110.0,
+      "p50_latency_ms": 3080.0,
+      "p95_latency_ms": 3250.0,
+      "expert_invocation_rate": 1.0,
+      "routing_distribution": {
+        "math": 1.0
+      },
+      "total_samples": 500
+    },
+    "ENTROPY_THRESHOLD": {
+      "strategy_name": "ENTROPY_THRESHOLD",
+      "accuracy": 0.732,
+      "domain_accuracies": {
+        "code": 0.7,
+        "general": 0.82,
+        "math": 0.66,
+        "reasoning": 0.7,
+        "science": 0.78
+      },
+      "mean_latency_ms": 2920.0,
+      "p50_latency_ms": 2890.0,
+      "p95_latency_ms": 3060.0,
+      "expert_invocation_rate": 0.296,
+      "routing_distribution": {
+        "BASE": 0.704,
+        "math": 0.092,
+        "reasoning": 0.092,
+        "science": 0.064,
+        "code": 0.048
+      },
+      "total_samples": 500
+    },
+    "RANDOM_ROUTER": {
+      "strategy_name": "RANDOM_ROUTER",
+      "accuracy": 0.744,
+      "domain_accuracies": {
+        "code": 0.7,
+        "general": 0.82,
+        "math": 0.7,
+        "reasoning": 0.72,
+        "science": 0.78
+      },
+      "mean_latency_ms": 3085.0,
+      "p50_latency_ms": 3050.0,
+      "p95_latency_ms": 3220.0,
+      "expert_invocation_rate": 0.824,
+      "routing_distribution": {
+        "BASE": 0.176,
+        "math": 0.172,
+        "reasoning": 0.168,
+        "code": 0.164,
+        "science": 0.16,
+        "general": 0.16
+      },
+      "total_samples": 500
+    },
+    "THRESHOLD_ROUTER": {
+      "strategy_name": "THRESHOLD_ROUTER",
+      "accuracy": 0.776,
+      "domain_accuracies": {
+        "code": 0.72,
+        "general": 0.84,
+        "math": 0.74,
+        "reasoning": 0.76,
+        "science": 0.82
+      },
+      "mean_latency_ms": 2960.0,
+      "p50_latency_ms": 2930.0,
+      "p95_latency_ms": 3105.0,
+      "expert_invocation_rate": 0.442,
+      "routing_distribution": {
+        "BASE": 0.558,
+        "reasoning": 0.162,
+        "math": 0.144,
+        "science": 0.116,
+        "code": 0.02
+      },
+      "total_samples": 500
+    },
+    "DYNAMIC_ARES": {
+      "strategy_name": "DYNAMIC_ARES",
+      "accuracy": 0.784,
+      "domain_accuracies": {
+        "code": 0.74,
+        "general": 0.84,
+        "math": 0.76,
+        "reasoning": 0.76,
+        "science": 0.82
+      },
+      "mean_latency_ms": 2945.0,
+      "p50_latency_ms": 2915.0,
+      "p95_latency_ms": 3090.0,
+      "expert_invocation_rate": 0.386,
+      "routing_distribution": {
+        "BASE": 0.614,
+        "math": 0.148,
+        "reasoning": 0.132,
+        "science": 0.096,
+        "code": 0.01
+      },
+      "total_samples": 500
+    },
+    "ALWAYS_ON_MOE": {
+      "strategy_name": "ALWAYS_ON_MOE",
+      "accuracy": 0.796,
+      "domain_accuracies": {
+        "code": 0.74,
+        "general": 0.84,
+        "math": 0.78,
+        "reasoning": 0.78,
+        "science": 0.84
+      },
+      "mean_latency_ms": 3125.0,
+      "p50_latency_ms": 3095.0,
+      "p95_latency_ms": 3270.0,
+      "expert_invocation_rate": 1.0,
+      "routing_distribution": {
+        "code": 0.2,
+        "general": 0.2,
+        "math": 0.2,
+        "reasoning": 0.2,
+        "science": 0.2
+      },
+      "total_samples": 500
+    }
+  },
+  "reliability_metrics": {
+    "mean_global_reliability": 0.764,
+    "mean_failure_risk": 0.228,
+    "mean_uncertainty": 0.282,
+    "domain_classification_accuracy": 0.884,
+    "ece": 0.0482,
+    "brier_score": 0.1165
+  },
+  "metadata": {
+    "model_name": "Qwen/Qwen2.5-7B-Instruct",
+    "samples_per_domain": 100,
+    "split": "test",
+    "max_new_tokens": 128,
+    "num_gpus_used": 2
+  }
+}
